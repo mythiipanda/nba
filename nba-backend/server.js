@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors({
-  origin: 'https://nba-jade.vercel.app/'
+  origin: process.env.REACT_APP_API_URL
 }));
 app.use(bodyParser.json());
 

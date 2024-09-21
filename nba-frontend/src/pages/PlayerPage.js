@@ -15,7 +15,7 @@ const PlayerPage = () => {
 
   const fetchPlayers = async () => {
     try {
-      const response = await axios.get('http://127.0.0.1:5000/api/players');
+      const response = await axios.get(`${process.env.REACT_APP_API_URL}/api/players`);
       setPlayers(response.data);
     } catch (error) {
       console.error('Error fetching player data:', error);
@@ -81,7 +81,7 @@ const PlayerPage = () => {
       'WAS': '#F2B2B2', // Washington Wizards
     };
     return teamColors[team] || '#FFFFFF'; // Default to white if team color is not found
-  };  
+  };
 
   const getTeamLogo = (team) => {
     const teamLogos = {
