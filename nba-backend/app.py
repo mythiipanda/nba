@@ -1,28 +1,61 @@
 from nba_api.stats.static import players
 from nba_api.stats.endpoints import playercareerstats
-from nba_api.stats.endpoints import LeagueLeaders
 import pandas as pd
-import numpy as np
 import time
 from pymongo import MongoClient
+from dotenv import load_dotenv
+import os
 
-# Connect to MongoDB (replace with your connection string)
-client = MongoClient('mongodb+srv://mythii:mythii@cluster0.xonkd.mongodb.net/nba-stats?retryWrites=true&w=majority')
+# Load environment variables
+load_dotenv()
+MONGODB_URL = os.getenv('MONGODB_URL')
+
+# Connect to MongoDB
+client = MongoClient(MONGODB_URL)
 db = client['nba_stats']
-players_collection = db['players_adv']
+players_collection = db['players_adv_all']
 
-# Fetch league leaders data for the 2023-2024 season
-league_leaders = LeagueLeaders(
-    league_id='00',  # nba 00, g_league 20, wnba 10
-    season='2023-24',  # change year(s) if needed
-    per_mode48='PerGame',  # "Totals", "Per48", "PerGame"
-)
-df_league_leaders = league_leaders.get_data_frames()[0]
+# Function to safely fetch player career stats with retries
+def fetch_player_career_stats(player_id, retries=3):
+    for attempt in range(retries):
+        try:
+            career_stats = playercareerstats.PlayerCareerStats(player_id=player_id)
+            return career_stats.get_data_frames()[0]
+        except Exception as e:
+            print(f"Attempt {attempt + 1} for player ID {player_id} failed: {e}")
+            if attempt < retries - 1:
+                print("Retrying...")
+                time.sleep(2 ** attempt)  # Exponential backoff
+            else:
+                print(f"Failed to fetch stats for player ID {player_id} after several attempts.")
+                return None
 
-# Convert DataFrame to dictionary
-league_leaders_dict = df_league_leaders.to_dict('records')
+# Fetch all players
+all_players = players.get_players()
+
+# Initialize a list to hold all career stats
+all_career_stats = []
+
+# Loop through all players and fetch their career stats
+for player in all_players:
+    player_id = player['id']
+    career_stats_df = fetch_player_career_stats(player_id)
+    
+    if career_stats_df is not None and not career_stats_df.empty:
+        # Convert the latest season's stats to dictionary
+        latest_season_stats = career_stats_df.iloc[-1].to_dict()
+        latest_season_stats['player_name'] = player['full_name']
+        all_career_stats.append(latest_season_stats)
+    
+    # Sleep to avoid rate limits
+    time.sleep(0.5)
+
+# Convert to DataFrame and insert into MongoDB
+df_all_career_stats = pd.DataFrame(all_career_stats)
 
 # Insert data into MongoDB
-players_collection.insert_many(league_leaders_dict)
+players_collection.insert_many(df_all_career_stats.to_dict('records'))
 
-print("League leaders data for the 2023-2024 season saved to MongoDB.")
+# Save to CSV for reference
+df_all_career_stats.to_csv('all_players_career_stats.csv', index=False)
+print("All players' career stats have been fetched and saved.")
