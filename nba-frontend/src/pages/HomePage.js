@@ -26,8 +26,10 @@ const HomePage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    console.log('Submitting new post:', newPost); // Debugging log
     try {
-      await axios.post('http://localhost:5000/api/posts', newPost);
+      const response = await axios.post('http://localhost:5000/api/posts', newPost);
+      console.log('Post created successfully:', response.data); // Debugging log
       setNewPost({ title: '', content: '' });
       fetchPosts();
     } catch (error) {

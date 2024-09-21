@@ -1,4 +1,3 @@
-// src/components/Header.js
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 
@@ -15,8 +14,8 @@ const Header = () => {
               <NavLink 
                 to="/" 
                 className={({ isActive }) => 
-                  isActive ? "border-indigo-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium" 
-                           : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium"
+                  isActive ? "border-indigo-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2 text-lg font-medium" 
+                           : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-lg font-medium"
                 }
               >
                 Home
@@ -24,20 +23,11 @@ const Header = () => {
               <NavLink 
                 to="/player-stats" 
                 className={({ isActive }) => 
-                  isActive ? "border-indigo-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium" 
-                           : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium"
+                  isActive ? "border-indigo-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2 text-lg font-medium" 
+                           : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-lg font-medium"
                 }
               >
                 Player Stats
-              </NavLink>
-              <NavLink 
-                to="/team-comparison" 
-                className={({ isActive }) => 
-                  isActive ? "border-indigo-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium" 
-                           : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium"
-                }
-              >
-                Team Comparison
               </NavLink>
             </div>
           </div>

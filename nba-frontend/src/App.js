@@ -3,7 +3,6 @@ import React from 'react';
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import HomePage from './pages/HomePage';
 import PlayerPage from './pages/PlayerPage';
-import TeamPage from './pages/TeamPage';
 import Header from './components/Header';
 
 const App = () => {
@@ -15,7 +14,6 @@ const App = () => {
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/player-stats" element={<PlayerPage />} />
-            <Route path="/team-comparison" element={<TeamPage />} />
           </Routes>
         </main>
       </div>

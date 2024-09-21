@@ -38,21 +38,45 @@ app.get('/api/posts', async (_, res) => {
     res.status(500).json({ message: err.message });
   }
 });
-
+app.post('/api/posts', async (req, res) => {
+  const { title, content } = req.body;
+  const newPost = new BlogPost({ title, content });
+  try {
+    const savedPost = await newPost.save();
+    res.status(201).json(savedPost);
+  } catch (err) {
+    console.error('Error saving post:', err);
+    res.status(400).json({ message: err.message });
+  }
+});
 // Define Player Schema
 const playerSchema = new mongoose.Schema({
-  name: String,
-  assists: Number,
-  fg_pct: Number,
-  free_throw_pct: Number,
-  is_active: Boolean,
-  points: Number,
-  rebounds: Number,
-  team: String,
-  three_pt_pct: Number,
+  PLAYER_ID: Number,
+  PLAYER: String,
+  TEAM_ID: Number,
+  TEAM: String,
+  GP: Number,
+  MIN: Number,
+  FGM: Number,
+  FGA: Number,
+  FG_PCT: Number,
+  FG3M: Number,
+  FG3A: Number,
+  FG3_PCT: Number,
+  FTM: Number,
+  FTA: Number,
+  FT_PCT: Number,
+  OREB: Number,
+  DREB: Number,
+  REB: Number,
+  AST: Number,
+  STL: Number,
+  BLK: Number,
+  TOV: Number,
+  PTS: Number,
 });
 
-const Player = mongoose.model('Player', playerSchema);
+const Player = mongoose.model('Player', playerSchema, 'players_adv');
 
 // Endpoint to get player data
 app.get('/api/players', async (req, res) => {
@@ -63,7 +87,16 @@ app.get('/api/players', async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
-
+// player search endpoint
+app.get('/api/players/search', async (req, res) => {
+  const { name } = req.query;
+  try {
+    const players = await Player.find({ PLAYER: new RegExp(name, 'i') });
+    res.json(players);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
