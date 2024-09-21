@@ -2,7 +2,7 @@
   "version": 2,
   "builds": [
     {
-      "src": "nba-backend/api/**/*.js",
+      "src": "nba-backend/server.js",
       "use": "@vercel/node"
     },
     {
@@ -14,7 +14,7 @@
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "nba-backend/api/$1"
+      "dest": "nba-backend/server.js"
     },
     {
       "src": "/static/(.*)",

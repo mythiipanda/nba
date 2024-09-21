@@ -91,15 +91,7 @@ app.get('/api/players', async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
-// Endpoint to get player stats
-app.get('/player-stats', async (req, res) => {
-  try {
-    const players = await Player.find();
-    res.json(players);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
+
 // Player search endpoint
 app.get('/api/players/search', async (req, res) => {
   const { name } = req.query;
