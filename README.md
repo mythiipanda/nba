@@ -1,3 +1,6 @@
+Frontend: ReactJS
+Backend: NodeJS
+DB: MongoDB
 nba
 Plans:
 - Analyze games
