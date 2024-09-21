@@ -14,23 +14,23 @@
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "/nba-backend/server.js"
+      "dest": "nba-backend/server.js"
     },
     {
       "src": "/static/(.*)",
-      "dest": "/nba-frontend/build/static/$1"
+      "dest": "nba-frontend/static/$1"
     },
     {
       "src": "/favicon.ico",
-      "dest": "/nba-frontend/build/favicon.ico"
+      "dest": "nba-frontend/favicon.ico"
     },
     {
       "src": "/manifest.json",
-      "dest": "/nba-frontend/build/manifest.json"
+      "dest": "nba-frontend/manifest.json"
     },
     {
       "src": "/(.*)",
-      "dest": "/nba-frontend/build/$1"
+      "dest": "nba-frontend/$1"
     }
   ]
 }
