@@ -12,7 +12,7 @@ const HomePage = () => {
 
   const fetchPosts = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/posts');
+      const response = await axios.get(`${process.env.REACT_APP_API_URL}/api/posts`);
       setBlogPosts(response.data);
     } catch (error) {
       console.error('Error fetching posts:', error);
@@ -28,7 +28,7 @@ const HomePage = () => {
     e.preventDefault();
     console.log('Submitting new post:', newPost); // Debugging log
     try {
-      const response = await axios.post('http://localhost:5000/api/posts', newPost);
+      const response = await axios.post(`${process.env.REACT_APP_API_URL}/api/posts`, newPost);
       console.log('Post created successfully:', response.data); // Debugging log
       setNewPost({ title: '', content: '' });
       fetchPosts();

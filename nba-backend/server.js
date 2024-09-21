@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors({
-  origin: 'https://nba-n9um3z9tb-tonys-projects-3bf31652.vercel.app'
+  origin: 'https://nba-pearl.vercel.app'
 }));
 app.use(bodyParser.json());
 
