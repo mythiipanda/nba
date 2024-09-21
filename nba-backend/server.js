@@ -3,13 +3,15 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const dotenv = require('dotenv');
-dotenv.config();  // Add this line to use environment variables
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: 'https://nba-n9um3z9tb-tonys-projects-3bf31652.vercel.app'
+}));
 app.use(bodyParser.json());
 
 // Connect to MongoDB Atlas
@@ -38,6 +40,7 @@ app.get('/api/posts', async (_, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+
 app.post('/api/posts', async (req, res) => {
   const { title, content } = req.body;
   const newPost = new BlogPost({ title, content });
@@ -49,6 +52,7 @@ app.post('/api/posts', async (req, res) => {
     res.status(400).json({ message: err.message });
   }
 });
+
 // Define Player Schema
 const playerSchema = new mongoose.Schema({
   PLAYER_ID: Number,
@@ -87,7 +91,8 @@ app.get('/api/players', async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
-// player search endpoint
+
+// Player search endpoint
 app.get('/api/players/search', async (req, res) => {
   const { name } = req.query;
   try {
@@ -97,6 +102,7 @@ app.get('/api/players/search', async (req, res) => {
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
