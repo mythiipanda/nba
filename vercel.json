@@ -2,23 +2,35 @@
     "version": 2,
     "builds": [
       {
-        "src": "frontend/package.json",
-        "use": "@vercel/static-build",
-        "config": { "distDir": "build" }
+        "src": "nba-backend/api/**/*.js",
+        "use": "@vercel/node"
       },
       {
-        "src": "backend/api/**/*.js",
-        "use": "@vercel/node"
+        "src": "nba-frontend/package.json",
+        "use": "@vercel/static-build",
+        "config": { "distDir": "build" }
       }
     ],
     "routes": [
       {
         "src": "/api/(.*)",
-        "dest": "/backend/api/$1"
+        "dest": "nba-backend/api/$1"
+      },
+      {
+        "src": "/static/(.*)",
+        "dest": "nba-frontend/static/$1"
+      },
+      {
+        "src": "/favicon.ico",
+        "dest": "nba-frontend/favicon.ico"
+      },
+      {
+        "src": "/manifest.json",
+        "dest": "nba-frontend/manifest.json"
       },
       {
         "src": "/(.*)",
-        "dest": "/frontend/$1"
+        "dest": "nba-frontend/$1"
       }
     ]
   }
