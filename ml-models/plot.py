@@ -2,13 +2,13 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import os
-data = pd.read_csv('projected_next_10_seasons.csv')
+data = pd.read_csv('projected_vorp_improved2.csv')
 filtered_data = data.groupby('Player').head(5)
 os.makedirs('plots', exist_ok=True)
 for Player in filtered_data['Player'].unique():
     player_data = filtered_data[filtered_data['Player'] == Player]
     plt.figure(figsize=(10, 6))
-    sns.lineplot(data=player_data, x='Season', y='VORP', marker='o')
+    sns.lineplot(data=player_data, x='Season', y='Projected_VORP', marker='o')
     plt.title(f'Projected VORP for {Player} (Next 5 Years)')
     plt.xlabel('Season')
     plt.ylabel('VORP')
