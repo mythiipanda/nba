@@ -3,91 +3,67 @@ import torch.nn as nn
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 import torch.nn.functional as F
 
 # Load the data
 data = pd.read_csv('filtered_dataset.csv')
 active_players = data[data['Season'].isin([2023, 2024])]['Player'].unique()
-features = ['Age', 'G', 'GS', 'MP', 'FG', 'FGA', 'FG%', '3P', '3PA', '3P%', '2P', '2PA', '2P%',
-            'FT', 'FTA', 'FT%', 'ORB', 'DRB', 'TRB', 'AST', 'STL', 'BLK', 'TOV', 'PF', 'PTS',
-            'ORtg', 'DRtg', 'PER', 'TS%', '3PAr', 'FTr', 'ORB%', 'DRB%', 'TRB%', 'AST%', 'STL%',
-            'BLK%', 'TOV%', 'USG%', 'OWS', 'DWS', 'WS', 'WS/48', 'OBPM', 'DBPM', 'BPM']
+features = ['Age', 'G', 'GS', 'MP', 'FG', 'FGA', 'FG%', '3P', '3PA', '3P%', 
+            '2P', '2PA', '2P%', 'FT', 'FTA', 'FT%', 'ORB', 'DRB', 'TRB', 
+            'AST', 'STL', 'BLK', 'TOV', 'PF', 'PTS', 'ORtg', 'DRtg', 
+            'PER', 'TS%', '3PAr', 'FTr', 'ORB%', 'DRB%', 'TRB%', 
+            'AST%', 'STL%', 'BLK%', 'TOV%', 'USG%', 'OWS', 'DWS', 
+            'WS', 'WS/48', 'OBPM', 'DBPM', 'BPM']
+
+# Feature engineering
 data['Age_squared'] = data['Age'] ** 2
 data['Age_cubed'] = data['Age'] ** 3
 data['Age_Group'] = pd.cut(data['Age'], bins=[0, 24, 30, 35, 40, 100], labels=['18-24', '25-30', '31-35', '36-40', '41+'])
 data = pd.get_dummies(data, columns=['Age_Group'], drop_first=True)
-# Scaling the features
-scaler = MinMaxScaler()
-scaled_features = scaler.fit_transform(data[features])
-scaled_data = pd.DataFrame(scaled_features, columns=features)
-
-# Add non-scaled columns back to the dataframe
-for col in data.columns:
-    if col not in features:
-        scaled_data[col] = data[col]
-
-data[features] = scaled_data[features]
-target = 'VORP'
 
 # Model definition with player embeddings
 class NBAProjectionModel(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, output_size, num_players, embedding_dim=16):
         super(NBAProjectionModel, self).__init__()
-        self.hidden_size = hidden_size
-        self.lstm = nn.LSTM(input_size + embedding_dim, hidden_size//2, num_layers, batch_first=True, bidirectional=True)  
         self.player_embedding = nn.Embedding(num_players, embedding_dim)  # Embedding for players
-        self.fc1 = nn.Linear(hidden_size, hidden_size)
+        self.lstm = nn.LSTM(input_size + embedding_dim, hidden_size, num_layers, 
+                            batch_first=True, bidirectional=True)  
+        self.fc1 = nn.Linear(hidden_size * 2, hidden_size)  # Bidirectional means we double the hidden size
         self.fc2 = nn.Linear(hidden_size, output_size)
-        self.layer_norm = nn.LayerNorm(hidden_size)
         self.dropout = nn.Dropout(0.2)
-    def attention(self, lstm_out, age_features):
-        age_weights = F.softmax(age_features, dim=-1)  # Softmax to get attention weights
-        context = torch.bmm(age_weights.unsqueeze(1), lstm_out)  # Weighted sum of LSTM outputs
-        return context.squeeze(1)
+        self.layer_norm = nn.LayerNorm(hidden_size)
+        
     def forward(self, x, player_idx):
         player_emb = self.player_embedding(player_idx).unsqueeze(1).repeat(1, x.size(1), 1)
         x = torch.cat([x, player_emb], dim=2)
         out, _ = self.lstm(x)
-        context = self.attention(out, x[:, :, features.index('Age')])
-        out = self.layer_norm(context)
-        out = self.layer_norm(out)
-        out = F.relu(self.fc1(out))
+        out = F.relu(self.fc1(out[:, -1, :]))  # Use the last output for prediction
         out = self.dropout(out)
         out = self.fc2(out)
         return out
 
 # Creating sequences from data
-def create_sequences_for_player(player_data, seq_length=3):
+def create_sequences_for_player(player_data, seq_length=2):
     sequences = []
-    for i in range(len(player_data) - seq_length + 1):  # Adjusted range for correct sequence count
+    player_data['VORP_diff'] = player_data['VORP'].diff().fillna(0)  # Calculate VORP difference
+    for i in range(len(player_data) - seq_length):
         seq = player_data.iloc[i:i + seq_length][features].values
-        label = player_data.iloc[i + seq_length - 1][target]  # Use the label for the last year in the sequence
+        label = player_data.iloc[i + seq_length]['VORP_diff']
         sequences.append((seq, label))
     return sequences
 
 # Preparing data for training
 sequences = []
-seq_length = 3
-player_map = {player: idx for idx, player in enumerate(data['Player'].unique())}  # Map player to index
+seq_length = 2
+player_map = {player: idx for idx, player in enumerate(data['Player'].unique())}
 
 for player in data['Player'].unique():
     player_data = data[data['Player'] == player].sort_values('Season').reset_index(drop=True)
     if len(player_data) > seq_length:
         player_sequences = create_sequences_for_player(player_data, seq_length)
         sequences.extend([(seq, label, player_map[player]) for seq, label in player_sequences])
-sequence_data = []
-for seq, label, player_idx in sequences:
-    sequence_data.append({
-        'Player': player_idx,
-        'Sequence': seq.tolist(),
-        'Label': label
-    })
-sequences_df = pd.DataFrame(sequence_data)
-sequences_df.to_csv('sequences_with_labels.csv', index=False)
 
-print("Sequences and labels saved to 'sequences_with_labels.csv'")
 X, y, players = zip(*sequences)
 X = np.array(X)
 y = np.array(y)
@@ -106,7 +82,7 @@ players_test = torch.from_numpy(players_test).long()
 # Model setup
 input_size = X_train.shape[2]
 hidden_size = 128
-num_layers = 4
+num_layers = 3
 output_size = 1
 num_players = len(player_map)
 
@@ -125,7 +101,7 @@ wait = 0
 history = {'loss': [], 'val_loss': [], 'mae': [], 'val_mae': []}
 for epoch in range(num_epochs):
     model.train()
-    outputs = model(X_train, players_train).squeeze()  # Ensure outputs and targets are the same shape
+    outputs = model(X_train, players_train).squeeze()
     optimizer.zero_grad()
     loss = criterion(outputs, y_train)
     loss.backward()
@@ -133,7 +109,7 @@ for epoch in range(num_epochs):
 
     model.eval()
     with torch.no_grad():
-        val_outputs = model(X_test, players_test).squeeze()  # Ensure outputs and targets are the same shape
+        val_outputs = model(X_test, players_test).squeeze()
         val_loss = criterion(val_outputs, y_test)
 
     history['loss'].append(loss.item())
@@ -181,33 +157,36 @@ def plot_training_history(history):
 
 plot_training_history(history)
 
-def project_future_vorp(player_data, model, features, seq_length, player_idx):
+def project_future_vorp_diff(player_data, model, features, seq_length, player_idx):
     projections = []
     last_seasons = player_data.iloc[-seq_length:][features].values
     last_season = player_data['Season'].max()
     player_name = player_data['Player'].iloc[0]
 
-    # Initialize a trend accumulator
+    # Initialize a trend accumulator for VORP_diff
     trend_sum = 0
     num_trends = 0
 
     for i in range(1, 6):
         input_sequence = last_seasons.reshape(1, seq_length, -1)
         input_sequence = torch.from_numpy(input_sequence).float()
-        vorp_prediction = model(input_sequence, torch.tensor([player_idx])).item()
+        vorp_diff_prediction = model(input_sequence, torch.tensor([player_idx])).item()  # Predicting VORP_diff
         if projections:
-            trend = vorp_prediction - projections[-1]['Projected_VORP']
+            trend = vorp_diff_prediction - projections[-1]['Projected_VORP_diff']
             trend_sum += trend
             num_trends += 1
             average_trend = trend_sum / num_trends
-            vorp_prediction += average_trend
+            vorp_diff_prediction += average_trend
+        
         new_season = last_season + i
         projections.append({
             'Player': player_name,
             'Season': new_season,
-            'Projected_VORP': vorp_prediction
+            'Projected_VORP_diff': vorp_diff_prediction  # Store the VORP_diff projection
         })
+        
         new_row = last_seasons[-1].copy()
+        # Update the age for the next season
         new_row[features.index('Age')] += 1
         last_seasons = np.vstack([last_seasons[1:], new_row])
 
@@ -218,7 +197,7 @@ for player in active_players:
     player_data = data[data['Player'] == player].sort_values('Season')
     if len(player_data) > seq_length:
         player_idx = player_map[player]
-        projections = project_future_vorp(player_data, model, features, seq_length, player_idx)
+        projections = project_future_vorp_diff(player_data, model, features, seq_length, player_idx)
         future_projections.extend(projections)
 
 future_df = pd.DataFrame(future_projections)
