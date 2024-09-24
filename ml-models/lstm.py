@@ -4,7 +4,9 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
 import torch.nn.functional as F
+from scipy.stats import zscore
 
 # Load the data
 data = pd.read_csv('filtered_dataset.csv')
@@ -22,23 +24,28 @@ data['Age_cubed'] = data['Age'] ** 3
 data['Age_Group'] = pd.cut(data['Age'], bins=[0, 24, 30, 35, 40, 100], labels=['18-24', '25-30', '31-35', '36-40', '41+'])
 data = pd.get_dummies(data, columns=['Age_Group'], drop_first=True)
 
+# Remove outliers based on VORP Diff
+data['VORP_diff'] = data['VORP'].diff().fillna(0)
+z_scores = zscore(data['VORP_diff'])
+data = data[(z_scores < 3) & (z_scores > -3)]
+
 # Model definition with player embeddings
 class NBAProjectionModel(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, output_size, num_players, embedding_dim=16):
         super(NBAProjectionModel, self).__init__()
-        self.player_embedding = nn.Embedding(num_players, embedding_dim)  # Embedding for players
+        self.player_embedding = nn.Embedding(num_players, embedding_dim)
         self.lstm = nn.LSTM(input_size + embedding_dim, hidden_size, num_layers, 
-                            batch_first=True, bidirectional=True)  
-        self.fc1 = nn.Linear(hidden_size * 2, hidden_size)  # Bidirectional means we double the hidden size
+                            batch_first=True, bidirectional=True, dropout=0.2)
+        self.fc1 = nn.Linear(hidden_size * 2, hidden_size)
         self.fc2 = nn.Linear(hidden_size, output_size)
-        self.dropout = nn.Dropout(0.2)
+        self.dropout = nn.Dropout(0.3)  # Increased dropout
         self.layer_norm = nn.LayerNorm(hidden_size)
-        
+
     def forward(self, x, player_idx):
         player_emb = self.player_embedding(player_idx).unsqueeze(1).repeat(1, x.size(1), 1)
         x = torch.cat([x, player_emb], dim=2)
         out, _ = self.lstm(x)
-        out = F.relu(self.fc1(out[:, -1, :]))  # Use the last output for prediction
+        out = F.relu(self.fc1(out[:, -1, :]))
         out = self.dropout(out)
         out = self.fc2(out)
         return out
@@ -46,7 +53,7 @@ class NBAProjectionModel(nn.Module):
 # Creating sequences from data
 def create_sequences_for_player(player_data, seq_length=2):
     sequences = []
-    player_data['VORP_diff'] = player_data['VORP'].diff().fillna(0)  # Calculate VORP difference
+    player_data['VORP_diff'] = player_data['VORP'].diff().fillna(0)
     for i in range(len(player_data) - seq_length):
         seq = player_data.iloc[i:i + seq_length][features].values
         label = player_data.iloc[i + seq_length]['VORP_diff']
@@ -92,7 +99,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
 num_epochs = 1000
 
 # Early stopping implementation
-patience = 50
+patience = 1000
 best_val_loss = float('inf')
 best_model_state = None
 wait = 0
@@ -157,6 +164,8 @@ def plot_training_history(history):
 
 plot_training_history(history)
 
+
+
 def project_future_vorp_diff(player_data, model, features, seq_length, player_idx):
     projections = []
     last_seasons = player_data.iloc[-seq_length:][features].values
@@ -170,7 +179,7 @@ def project_future_vorp_diff(player_data, model, features, seq_length, player_id
     for i in range(1, 6):
         input_sequence = last_seasons.reshape(1, seq_length, -1)
         input_sequence = torch.from_numpy(input_sequence).float()
-        vorp_diff_prediction = model(input_sequence, torch.tensor([player_idx])).item()  # Predicting VORP_diff
+        vorp_diff_prediction = model(input_sequence, torch.tensor([player_idx])).item()
         if projections:
             trend = vorp_diff_prediction - projections[-1]['Projected_VORP_diff']
             trend_sum += trend
@@ -182,11 +191,10 @@ def project_future_vorp_diff(player_data, model, features, seq_length, player_id
         projections.append({
             'Player': player_name,
             'Season': new_season,
-            'Projected_VORP_diff': vorp_diff_prediction  # Store the VORP_diff projection
+            'Projected_VORP_diff': vorp_diff_prediction
         })
         
         new_row = last_seasons[-1].copy()
-        # Update the age for the next season
         new_row[features.index('Age')] += 1
         last_seasons = np.vstack([last_seasons[1:], new_row])
 
@@ -201,6 +209,6 @@ for player in active_players:
         future_projections.extend(projections)
 
 future_df = pd.DataFrame(future_projections)
-future_df.to_csv('projected_vorp_improved3.csv', index=False)
+future_df.to_csv('projected_vorp_improved.csv', index=False)
 
-print("Projections completed and saved to 'projected_vorp_improved3.csv'")
+print("Projections completed and saved to 'projected_vorp_improved.csv'")
