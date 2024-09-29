@@ -1,11 +1,42 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.model_selection import train_test_split
-import torch.nn.functional as F
+from sklearn.model_selection import train_test_split, KFold
+from sklearn.ensemble import IsolationForest
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+
+class NBAProjectionModel(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, output_size, player_emb_size, num_players):
+        super(NBAProjectionModel, self).__init__()
+
+        self.player_embedding = nn.Embedding(num_players, player_emb_size)
+        self.lstm = nn.LSTM(input_size + player_emb_size, hidden_size, num_layers, batch_first=True, bidirectional=True)
+        self.fc1 = nn.Linear(hidden_size * 2, hidden_size * 2)
+        self.fc2 = nn.Linear(hidden_size * 2, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, output_size)
+        self.layer_norm = nn.LayerNorm(hidden_size * 2)
+        self.dropout = nn.Dropout(0.3)
+
+    def forward(self, x, player_idx):
+        if torch.any(player_idx >= num_players):
+            raise ValueError(f"Invalid player index found: {player_idx}")
+        player_emb = self.player_embedding(player_idx).unsqueeze(1).repeat(1, x.size(1), 1)
+        x = torch.cat([x, player_emb], dim=2)
+        out, _ = self.lstm(x)
+        residual = out[:, -1, :]
+        out = self.layer_norm(residual)
+        out = F.relu(self.fc1(out))
+        out = self.dropout(out)
+        out = F.relu(self.fc2(out + residual))
+        out = self.fc3(out)
+        return out
+
+# Load the data and preprocess it
 data = pd.read_csv('filtered_dataset.csv')
 active_players = data[data['Season'].isin([2023, 2024])]['Player'].unique()
 
@@ -13,128 +44,114 @@ features = ['Age', 'G', 'GS', 'MP', 'FG', 'FGA', 'FG%', '3P', '3PA', '3P%', '2P'
             'FT', 'FTA', 'FT%', 'ORB', 'DRB', 'TRB', 'AST', 'STL', 'BLK', 'TOV', 'PF', 'PTS',
             'ORtg', 'DRtg', 'PER', 'TS%', '3PAr', 'FTr', 'ORB%', 'DRB%', 'TRB%', 'AST%', 'STL%',
             'BLK%', 'TOV%', 'USG%', 'OWS', 'DWS', 'WS', 'WS/48', 'OBPM', 'DBPM', 'BPM']
+
+data['Age_Curve'] = data['Age'] ** 2
+
+features.append('Age_Curve')
+
+data['VORP_diff'] = data.groupby('Player')['VORP'].diff().fillna(0)
+
+# Remove outliers function
+def remove_outliers(df, features):
+    iso_forest = IsolationForest(contamination=0.05)
+    outlier_labels = iso_forest.fit_predict(df[features])
+    return df[outlier_labels == 1]
+
+data = remove_outliers(data, features + ['VORP_diff'])
+
+scaler = MinMaxScaler()
+scaled_features = scaler.fit_transform(data[features])
+scaled_data = pd.DataFrame(scaled_features, columns=features)
+for col in data.columns:
+    if col not in features:
+        scaled_data[col] = data[col]
+
+data[features] = scaled_data[features]
 target = 'VORP'
-class NBAProjectionModel(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, output_size, player_emb_size, num_players):
-        super(NBAProjectionModel, self).__init__()
 
-        # Player embedding
-        self.player_embedding = nn.Embedding(num_players, player_emb_size)
+player_to_idx = {player: idx for idx, player in enumerate(data['Player'].unique())}
+num_players = len(player_to_idx)
 
-        # LSTM layer (bidirectional)
-        self.lstm = nn.LSTM(input_size + player_emb_size, hidden_size, num_layers, batch_first=True, bidirectional=True)
-
-        # Residual connection using linear layers
-        self.fc1 = nn.Linear(hidden_size * 2, hidden_size * 2)  # Adjusted to match the size
-        self.fc2 = nn.Linear(hidden_size * 2, hidden_size)
-        self.fc3 = nn.Linear(hidden_size, output_size)
-
-        # Normalization layer
-        self.layer_norm = nn.LayerNorm(hidden_size * 2)
-
-    def forward(self, x, player_idx):
-        # Ensure player_idx is within the valid range
-        if torch.any(player_idx >= self.player_embedding.num_embeddings):
-            raise ValueError("Player index out of range")
-
-        player_emb = self.player_embedding(player_idx).unsqueeze(1).repeat(1, x.size(1), 1)
-        x = torch.cat([x, player_emb], dim=2)
-        out, _ = self.lstm(x)
-        residual = out[:, -1, :]
-        out = self.layer_norm(residual)
-        out = F.relu(self.fc1(out))
-        out = F.relu(self.fc2(out + residual))  # Residual connection
-        out = self.fc3(out)
-
-        return out
-
-# Example usage
-num_players = data['Player'].nunique()
 input_size = len(features)
 hidden_size = 128
 num_layers = 2
 output_size = 1
-player_emb_size = 16
+player_emb_size = 50
 
 model = NBAProjectionModel(input_size, hidden_size, num_layers, output_size, player_emb_size, num_players)
 
-# Update the create_sequences function to include player IDs
-def create_sequences(player_data, seq_length=3):
-    sequences = []
-    for i in range(len(player_data) - seq_length):
-        seq = player_data.iloc[i:i + seq_length][features].values
-        label = player_data.iloc[i + seq_length][target]
-        player_id = player_data.iloc[i + seq_length]['PlayerID']  # Assuming 'PlayerID' is a numeric ID for players
-        sequences.append((seq, label, player_id))
-    return sequences
+# Load the model weights
+model.load_state_dict(torch.load('model_weights.pth'))
 
-sequences = []
-seq_length = 3
-data['PlayerID'] = data['Player'].factorize()[0]  # Create numeric player IDs
-for player in data['Player'].unique():
-    player_data = data[data['Player'] == player].sort_values('Season').reset_index(drop=True)
+# Define the function to project future VORP differences
+def project_future_vorp_diff(player_data, model, features, seq_length, player_idx):
+    projections = []
+    last_seasons = player_data.iloc[-seq_length:][features].values
+    last_season = player_data['Season'].max()
+    player_name = player_data['Player'].iloc[0]
+
+    # Initialize a trend accumulator for VORP_diff
+    trend_sum = 0
+    num_trends = 0
+
+    for i in range(1, 6):
+        input_sequence = last_seasons.reshape(1, seq_length, -1)
+        input_sequence = torch.from_numpy(input_sequence).float()
+        vorp_diff_prediction = model(input_sequence, torch.tensor([player_idx])).item()
+        if projections:
+            trend = vorp_diff_prediction - projections[-1]['Projected_VORP_diff']
+            trend_sum += trend
+            num_trends += 1
+            average_trend = trend_sum / num_trends
+            vorp_diff_prediction += average_trend
+        
+        new_season = last_season + i
+        projections.append({
+            'Player': player_name,
+            'Season': new_season,
+            'Projected_VORP_diff': vorp_diff_prediction
+        })
+        
+        new_row = last_seasons[-1].copy()
+        new_row[features.index('Age')] += 1
+        last_seasons = np.vstack([last_seasons[1:], new_row])
+
+    return projections
+
+# Project future VORP differences
+future_projections = []
+for player in active_players:
+    player_data = data[data['Player'] == player].sort_values('Season')
     if len(player_data) > seq_length:
-        player_sequences = create_sequences(player_data, seq_length)
-        sequences.extend(player_sequences)
+        player_idx = player_to_idx[player]
+        projections = project_future_vorp_diff(player_data, model, features, seq_length, player_idx)
+        future_projections.extend(projections)
 
-# Training loop (simplified)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-criterion = nn.MSELoss()
-history = {'loss': [], 'val_loss': [], 'mae': [], 'val_mae': []}
+future_df = pd.DataFrame(future_projections)
+future_df.to_csv('projected_vorp_improved.csv', index=False)
 
-num_epochs = 15
-for epoch in range(num_epochs):
-    model.train()
-    total_loss = 0
-    for seq, label, player_id in sequences:
-        seq = torch.tensor(seq, dtype=torch.float32).unsqueeze(0)
-        label = torch.tensor(label, dtype=torch.float32).unsqueeze(0)
-        player_id = torch.tensor([player_id], dtype=torch.long)
-        
-        optimizer.zero_grad()
-        output = model(seq, player_id)
-        loss = criterion(output, label)
-        loss.backward()
-        optimizer.step()
-        
-        total_loss += loss.item()
-    
-    model.eval()
-    with torch.no_grad():
-        val_loss = 0
-        for seq, label, player_id in sequences:
-            seq = torch.tensor(seq, dtype=torch.float32).unsqueeze(0)
-            label = torch.tensor(label, dtype=torch.float32).unsqueeze(0)
-            player_id = torch.tensor([player_id], dtype=torch.long)
-            
-            val_output = model(seq, player_id)
-            val_loss += criterion(val_output, label).item()
-        
-    history['loss'].append(total_loss / len(sequences))
-    history['val_loss'].append(val_loss / len(sequences))
-    history['mae'].append(torch.mean(torch.abs(output - label)).item())
-    history['val_mae'].append(torch.mean(torch.abs(val_output - label)).item())
+print("Projections completed and saved to 'projected_vorp_improved.csv'")
 
-    if (epoch + 1) % 5 == 0:
-        print(f'Epoch {epoch + 1}/{num_epochs}, Loss: {total_loss / len(sequences)}, Val Loss: {val_loss / len(sequences)}')
+# Evaluate the model
+model.eval()
+with torch.no_grad():
+    all_outputs = model(torch.from_numpy(X).float(), torch.from_numpy(player_idxs).long()).squeeze()
+    all_targets = torch.from_numpy(y).float()
 
-def plot_training_history(history):
-    plt.figure(figsize=(14, 5))
-    plt.subplot(1, 2, 1)
-    plt.plot(history['loss'], label='Train Loss')
-    plt.plot(history['val_loss'], label='Validation Loss')
-    plt.title('Model Loss (MSE)')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss (MSE)')
-    plt.legend()
-    plt.subplot(1, 2, 2)
-    plt.plot(history['mae'], label='Train MAE')
-    plt.plot(history['val_mae'], label='Validation MAE')
-    plt.title('Model MAE')
-    plt.xlabel('Epoch')
-    plt.ylabel('MAE')
-    plt.legend()
-    plt.show()
+mse = mean_squared_error(all_targets, all_outputs)
+mae = mean_absolute_error(all_targets, all_outputs)
+r2 = r2_score(all_targets, all_outputs)
 
-# Plot the training history
-plot_training_history(history)
+print(f"Mean Squared Error: {mse:.4f}")
+print(f"Mean Absolute Error: {mae:.4f}")
+print(f"R-squared Score: {r2:.4f}")
+
+# Plot actual vs predicted values
+plt.figure(figsize=(10, 6))
+plt.scatter(all_targets.numpy(), all_outputs.numpy(), alpha=0.5)
+plt.plot([all_targets.min(), all_targets.max()], [all_targets.min(), all_targets.max()], 'r--', lw=2)
+plt.xlabel("Actual VORP Difference")
+plt.ylabel("Predicted VORP Difference")
+plt.title("Actual vs Predicted VORP Difference")
+plt.tight_layout()
+plt.show()
