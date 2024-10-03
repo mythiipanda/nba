@@ -229,9 +229,9 @@ def main():
     data, features, player_mapping, scaler, pca = preprocess(data)
     X, y, player_idx = create_sequences(data, features)
     X_train, X_temp, y_train, y_temp, player_idx_train, player_idx_temp = train_test_split(
-        X, y, player_idx, test_size=0.01)
+        X, y, player_idx, test_size=0.2)
     X_val, X_test, y_val, y_test, player_idx_val, player_idx_test = train_test_split(
-        X_temp, y_temp, player_idx_temp, test_size=0.01)
+        X_temp, y_temp, player_idx_temp, test_size=0.2)
     X_train = torch.FloatTensor(X_train)
     X_val = torch.FloatTensor(X_val)
     X_test = torch.FloatTensor(X_test)
