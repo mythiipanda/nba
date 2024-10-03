@@ -4,197 +4,218 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
 import torch.nn.functional as F
-from scipy.stats import zscore
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-from sklearn.model_selection import KFold
-from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.decomposition import PCA
+import math
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
-data = pd.read_csv('filtered_dataset.csv')
-active_players = data[data['Season'].isin([2023, 2024])]['Player'].unique()
-data['VORP_diff'] = data.groupby('Player')['VORP'].diff().fillna(0)
-features = ['Age', 'FG', 'FGA', 'FG%', '3P', '3PA', '3P%', 
-            '2P', '2PA', '2P%', 'FT', 'FTA', 'FT%', 'ORB', 'DRB', 'TRB', 
-            'AST', 'STL', 'BLK', 'TOV', 'PF', 'PTS', 'ORtg', 'DRtg', 
-            'PER', 'TS%', '3PAr', 'FTr', 'ORB%', 'DRB%', 'TRB%', 
-            'AST%', 'STL%', 'BLK%', 'TOV%', 'USG%', 'OWS', 'DWS', 
-            'WS', 'WS/48', 'OBPM', 'DBPM', 'BPM']
-# def age_curve(age, peak_age=27, decline_rate=0.5):
-#     if age < peak_age:
-#         return 1 + (age - 20) * 0.05
-#     else:
-#         return max(0, 1 - decline_rate * (age - peak_age))
-def feature_engineering(data):
-    data['Age_squared'] = data['Age'] ** 2
-    data['Age_cubed'] = data['Age'] ** 3
-    # data['Age_Curve'] = data['Age'].apply(age_curve)
-    data = data.sort_values(['Player', 'Season'])
-    rolling_features = ['AGE', 'WS', 'OWS', 'DWS', 'WS/48', 'PER', 'OBPM', 'DBPM']
-    for feature in rolling_features:
-        data[f'{feature}_rolling_avg'] = data.groupby('Player')[feature].transform(lambda x: x.rolling(window=3, min_periods=1).mean())
-    return data
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len=5000):
+        super().__init__()
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        pe = torch.zeros(max_len, 1, d_model)
+        pe[:, 0, 0::2] = torch.sin(position * div_term)
+        pe[:, 0, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe)
 
-class AttentionLayer(nn.Module):
-    def __init__(self, hidden_size):
-        super(AttentionLayer, self).__init__()
-        self.attention = nn.Linear(hidden_size, 1)
     def forward(self, x):
-        attention_weights = F.softmax(self.attention(x), dim=1)
-        context_vector = torch.sum(x * attention_weights, dim=1)
-        return context_vector
-class NBAProjectionModel(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, output_size, num_players, embedding_dim=16):
-        super(NBAProjectionModel, self).__init__()
+        return x + self.pe[:x.size(0)]
+
+class AdvancedNBAProjectionModel(nn.Module):
+    def __init__(self, input_size, d_model, nhead, num_layers, output_size, num_players, 
+                 dropout=0.1, activation="gelu", embedding_dim=64):
+        super().__init__()
         self.player_embedding = nn.Embedding(num_players, embedding_dim)
-        self.lstm = nn.LSTM(input_size + embedding_dim, hidden_size, num_layers, 
-                            batch_first=True, bidirectional=True, dropout=0.3)
-        self.attention = AttentionLayer(hidden_size * 2)
-        self.fc1 = nn.Linear(hidden_size * 2, hidden_size)
-        self.fc2 = nn.Linear(hidden_size, output_size)
-        self.dropout = nn.Dropout(0.4)
-        self.layer_norm = nn.LayerNorm(hidden_size)
+        self.input_projection = nn.Linear(input_size + embedding_dim, d_model)
+        self.pos_encoder = PositionalEncoding(d_model)
+        encoder_layers = TransformerEncoderLayer(d_model, nhead, d_model * 4, dropout, activation)
+        self.transformer_encoder = TransformerEncoder(encoder_layers, num_layers)
+        self.output_projection = nn.Linear(d_model, output_size)
+        self.d_model = d_model
+
+    def forward(self, src, player_idx):
+        player_emb = self.player_embedding(player_idx).unsqueeze(1).repeat(1, src.size(1), 1)
+        src = torch.cat([src, player_emb], dim=2)
+        src = self.input_projection(src) * math.sqrt(self.d_model)
+        src = self.pos_encoder(src)
+        output = self.transformer_encoder(src)
+        output = self.output_projection(output[:, -1, :])
+        return output
+
+class TemporalFusionTransformer(nn.Module):
+    def __init__(self, input_size, num_players, hidden_size=64, lstm_layers=2, 
+                 num_heads=4, dropout=0.1, embedding_dim=32):
+        super().__init__()
+        self.player_embedding = nn.Embedding(num_players, embedding_dim)
+        self.lstm = nn.LSTM(input_size + embedding_dim, hidden_size, lstm_layers, batch_first=True)
+        self.variable_selection = nn.Sequential(
+            nn.Linear(hidden_size, input_size + embedding_dim),
+            nn.Softmax(dim=-1)
+        )
+        self.static_enrichment = nn.Linear(hidden_size + embedding_dim, hidden_size)
+        self.temporal_self_attention = nn.MultiheadAttention(hidden_size, num_heads, dropout=dropout)
+        self.gated_residual_network = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, hidden_size),
+            nn.Sigmoid()
+        )
+        self.final_layer = nn.Linear(hidden_size, 1)
 
     def forward(self, x, player_idx):
-        player_emb = self.player_embedding(player_idx).unsqueeze(1).repeat(1, x.size(1), 1)
-        x = torch.cat([x, player_emb], dim=2)
-        out, _ = self.lstm(x)
-        out = self.attention(out)
-        out = F.relu(self.fc1(out))
-        out = self.layer_norm(out)
-        out = self.dropout(out)
-        out = self.fc2(out)
-        return out
+        batch_size, seq_len, _ = x.shape
+        player_emb = self.player_embedding(player_idx).unsqueeze(1).repeat(1, seq_len, 1)
+        x_with_emb = torch.cat([x, player_emb], dim=2)
+        
+        lstm_out, _ = self.lstm(x_with_emb)
+        var_weights = self.variable_selection(lstm_out)
+        x_selected = x_with_emb * var_weights
+        static_context = self.static_enrichment(torch.cat([lstm_out[:, -1, :], player_emb[:, -1, :]], dim=-1))
+        enriched = lstm_out + static_context.unsqueeze(1)
+        attn_out, _ = self.temporal_self_attention(enriched.transpose(0, 1), enriched.transpose(0, 1), enriched.transpose(0, 1))
+        attn_out = attn_out.transpose(0, 1)
+        gated_out = self.gated_residual_network(attn_out)
+        output = attn_out + gated_out
+        return self.final_layer(output[:, -1, :])
 
-def create_sequences_for_player(player_data, seq_length=2):
-    sequences = []
-    for i in range(len(player_data) - seq_length):
-        seq = player_data.iloc[i:i + seq_length][features].values
-        label = player_data.iloc[i + seq_length]['VORP_diff']
-        sequences.append((seq, label))
-    return sequences
+class EnsembleNBAProjectionModel(nn.Module):
+    def __init__(self, input_size, d_model, nhead, num_layers, output_size, num_players, 
+                 dropout=0.1, activation="gelu", embedding_dim=64, hidden_size=64, lstm_layers=2):
+        super().__init__()
+        self.transformer_model = AdvancedNBAProjectionModel(input_size, d_model, nhead, num_layers, 
+                                                            output_size, num_players, dropout, 
+                                                            activation, embedding_dim)
+        self.tft_model = TemporalFusionTransformer(input_size, num_players, hidden_size, 
+                                                   lstm_layers, nhead, dropout, embedding_dim)
+        self.ensemble_weights = nn.Parameter(torch.ones(2))
 
-sequences = []
-seq_length = 2
-player_map = {player: idx for idx, player in enumerate(data['Player'].unique())}
+    def forward(self, x, player_idx):
+        transformer_out = self.transformer_model(x, player_idx)
+        tft_out = self.tft_model(x, player_idx)
+        
+        weights = F.softmax(self.ensemble_weights, dim=0)
+        ensemble_out = weights[0] * transformer_out + weights[1] * tft_out
+        return ensemble_out
 
-for player in data['Player'].unique():
-    player_data = data[data['Player'] == player].sort_values('Season').reset_index(drop=True)
-    if len(player_data) > seq_length:
-        player_sequences = create_sequences_for_player(player_data, seq_length)
-        sequences.extend([(seq, label, player_map[player]) for seq, label in player_sequences])
 
-def remove_outliers(data, features, contamination=0.01):
-    iso_forest = IsolationForest(contamination=contamination, random_state=42)
-    outlier_labels = iso_forest.fit_predict(data[features])
-    return data[outlier_labels == 1]
+def preprocess(data):
+    features = ['Age', 'FG', 'FGA', 'FG%', '3P', '3PA', '3P%', 
+                '2P', '2PA', '2P%', 'FT', 'FTA', 'FT%', 'ORB', 'DRB', 'TRB', 
+                'AST', 'STL', 'BLK', 'TOV', 'PF', 'PTS', 'ORtg', 'DRtg', 
+                'PER', 'TS%', '3PAr', 'FTr', 'ORB%', 'DRB%', 'TRB%', 
+                'AST%', 'STL%', 'BLK%', 'TOV%', 'USG%', 'OWS', 'DWS', 
+                'WS', 'WS/48', 'OBPM', 'DBPM', 'VORP']
+    scaler = MinMaxScaler()
+    data[features] = scaler.fit_transform(data[features])
+    pca = PCA(n_components=0.95)
+    pca.fit(data[features])
+    importance = np.abs(pca.components_).sum(axis=0)
+    features = [f for f, i in zip(features, importance) if i > 0]
+    player_mapping = {player: idx for idx, player in enumerate(data['Player'].unique())}
+    data['player_idx'] = data['Player'].map(player_mapping)
+    return data, features, player_mapping, scaler, pca
 
-data = remove_outliers(data, features + ['VORP_diff'])
-# scaler = StandardScaler()
-# data[features] = scaler.fit_transform(data[features])
-# Save sequences to CSV
-sequences_df = pd.DataFrame([
-    {
-        'sequence': seq.tolist(),
-        'label': label,
-        'player_idx': player_idx
-    }
-    for seq, label, player_idx in sequences
-])
+def create_sequences(data, features, sequence_length=3):
+    X, y, player_idx = [], [], []
+    for player in data['Player'].unique():
+        player_data = data[data['Player'] == player].sort_values('Season')
+        if len(player_data) < sequence_length + 1:
+            continue
+        for i in range(len(player_data) - sequence_length):
+            X.append(player_data[features].iloc[i:i+sequence_length].values)
+            y.append(player_data['BPM'].iloc[i+sequence_length])
+            player_idx.append(player_data['player_idx'].iloc[i])
+    return np.array(X), np.array(y), np.array(player_idx)
 
-sequences_df.to_csv('sequences.csv', index=False)
-print("Sequences saved to 'sequences.csv'")
-X, y, players = zip(*sequences)
-X = np.array(X)
-y = np.array(y)
-players = np.array(players)
+def train_model(model, X_train, y_train, player_idx_train, X_val, y_val, player_idx_val, epochs, batch_size, lr, device):
+    criterion = nn.MSELoss()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-5)
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, epochs=epochs, steps_per_epoch=len(X_train)//batch_size)
 
-X_train, X_test, y_train, y_test, players_train, players_test = train_test_split(X, y, players, test_size=0.2, random_state=42)
+    model.to(device)
+    X_train, y_train, player_idx_train = X_train.to(device), y_train.to(device), player_idx_train.to(device)
+    X_val, y_val, player_idx_val = X_val.to(device), y_val.to(device), player_idx_val.to(device)
 
-input_size = X_train.shape[2]
-hidden_size = 128
-num_layers = 3
-output_size = 1
-num_players = len(player_map)
+    best_val_loss = float('inf')
+    patience = 10
+    patience_counter = 0
 
-model = NBAProjectionModel(input_size, hidden_size, num_layers, output_size, num_players)
-criterion = nn.MSELoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
-scheduler = ReduceLROnPlateau(optimizer, 'min', patience=50, factor=0.5, verbose=True)
-num_epochs = 1000
+    for epoch in range(epochs):
+        model.train()
+        total_loss = 0
+        for i in range(0, len(X_train), batch_size):
+            X_batch = X_train[i:i+batch_size]
+            y_batch = y_train[i:i+batch_size]
+            player_idx_batch = player_idx_train[i:i+batch_size]
+            
+            optimizer.zero_grad()
+            output = model(X_batch, player_idx_batch)
+            loss = criterion(output.squeeze(), y_batch)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()
+            scheduler.step()
+            
+            total_loss += loss.item()
+        
+        avg_loss = total_loss / (len(X_train) // batch_size)
+        
+        model.eval()
+        with torch.no_grad():
+            val_output = model(X_val, player_idx_val)
+            val_loss = criterion(val_output.squeeze(), y_val)
+        
+        print(f'Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.4f}, Val Loss: {val_loss.item():.4f}')
 
-patience = 500
-best_val_loss = float('inf')
-best_model_state = None
-wait = 0
-fold_best_val_loss = float('inf')
-X, player_idxs, y = zip(*sequences)
-X = np.array(X)
-y = np.array(y)
-player_idxs = np.array(player_idxs)
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            patience_counter = 0
+            torch.save(model.state_dict(), 'best_model.pth')
+        else:
+            patience_counter += 1
+            if patience_counter >= patience:
+                print("Early stopping triggered.")
+                break
 
-X_train = torch.from_numpy(X_train).float()
-y_train = torch.from_numpy(y_train).float()
-players_train = torch.from_numpy(players_train).long()
-X_test = torch.from_numpy(X_test).float()
-y_test = torch.from_numpy(y_test).float()
-players_test = torch.from_numpy(players_test).long()
-model.apply(lambda m: m.reset_parameters() if hasattr(m, 'reset_parameters') else None)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
-scheduler = ReduceLROnPlateau(optimizer, 'min', patience=50, factor=0.5, verbose=True)
-for epoch in range(num_epochs):
-    model.train()
-    outputs = model(X_train, players_train).squeeze()
-    optimizer.zero_grad()
-    loss = criterion(outputs, y_train)
-    loss.backward()
-    optimizer.step()
+    model.load_state_dict(torch.load('best_model.pth'))
+    return model
+
+def evaluate_model(model, X_test, y_test, player_idx_test, device):
     model.eval()
+    X_test, y_test, player_idx_test = X_test.to(device), y_test.to(device), player_idx_test.to(device)
     with torch.no_grad():
-        val_outputs = model(X_test, players_test).squeeze()
-        val_loss = criterion(val_outputs, y_test)
-    scheduler.step(val_loss)
-    if val_loss < fold_best_val_loss:
-        best_val_loss = val_loss
-        best_model_state = model.state_dict()
+        predictions = model(X_test, player_idx_test).squeeze()
+        mse = nn.MSELoss()(predictions, y_test)
+        mae = nn.L1Loss()(predictions, y_test)
+    print(f'Test MSE: {mse.item():.4f}, MAE: {mae.item():.4f}')
+    return predictions
 
-    if (epoch + 1) % 5 == 0:
-        print(f'Epoch {epoch + 1}/{num_epochs}, Loss: {loss.item()}, Val Loss: {val_loss.item()}')
-
-print(f"Best validation loss: {best_val_loss}")
-model.load_state_dict(best_model_state)
-
-torch.save(model.state_dict(), 'model_weights.pth')
-print("Model weights saved to 'model_weights.pth'")
-
-
-def project_future_vorp_diff(player_data, model, features, seq_length, player_idx):
+def project_future_BPM(player_data, model, features, seq_length, player_idx, device):
     projections = []
     last_seasons = player_data.iloc[-seq_length:][features].values
     last_season = player_data['Season'].max()
     player_name = player_data['Player'].iloc[0]
-
-    # Initialize a trend accumulator for VORP_diff
     trend_sum = 0
     num_trends = 0
 
     for i in range(1, 6):
         input_sequence = last_seasons.reshape(1, seq_length, -1)
-        input_sequence = torch.from_numpy(input_sequence).float()
-        vorp_diff_prediction = model(input_sequence, torch.tensor([player_idx])).item()
+        input_sequence = torch.from_numpy(input_sequence).float().to(device)
+        BPM_prediction = model(input_sequence, torch.tensor([player_idx]).to(device)).item()
         if projections:
-            trend = vorp_diff_prediction - projections[-1]['Projected_VORP_diff']
+            trend = BPM_prediction - projections[-1]['Projected_BPM']
             trend_sum += trend
             num_trends += 1
             average_trend = trend_sum / num_trends
-            vorp_diff_prediction += average_trend
+            BPM_prediction += average_trend
         
         new_season = last_season + i
         projections.append({
             'Player': player_name,
             'Season': new_season,
-            'Projected_VORP_diff': vorp_diff_prediction
+            'Projected_BPM': BPM_prediction
         })
         
         new_row = last_seasons[-1].copy()
@@ -203,39 +224,75 @@ def project_future_vorp_diff(player_data, model, features, seq_length, player_id
 
     return projections
 
-future_projections = []
-for player in active_players:
-    player_data = data[data['Player'] == player].sort_values('Season')
-    if len(player_data) > seq_length:
-        player_idx = player_map[player]
-        projections = project_future_vorp_diff(player_data, model, features, seq_length, player_idx)
-        future_projections.extend(projections)
+def main():
+    data = pd.read_csv('filtered_dataset.csv')
+    data, features, player_mapping, scaler, pca = preprocess(data)
+    X, y, player_idx = create_sequences(data, features)
+    X_train, X_temp, y_train, y_temp, player_idx_train, player_idx_temp = train_test_split(
+        X, y, player_idx, test_size=0.01)
+    X_val, X_test, y_val, y_test, player_idx_val, player_idx_test = train_test_split(
+        X_temp, y_temp, player_idx_temp, test_size=0.01)
+    X_train = torch.FloatTensor(X_train)
+    X_val = torch.FloatTensor(X_val)
+    X_test = torch.FloatTensor(X_test)
+    y_train = torch.FloatTensor(y_train)
+    y_val = torch.FloatTensor(y_val)
+    y_test = torch.FloatTensor(y_test)
+    player_idx_train = torch.LongTensor(player_idx_train)
+    player_idx_val = torch.LongTensor(player_idx_val)
+    player_idx_test = torch.LongTensor(player_idx_test)
 
-future_df = pd.DataFrame(future_projections)
-future_df.to_csv('projected_vorp_improved.csv', index=False)
+    input_size = len(features)
+    d_model = 128
+    nhead = 8
+    num_layers = 4
+    output_size = 1
+    num_players = len(player_mapping)
+    dropout = 0.1
+    activation = "gelu"
+    embedding_dim = 64
+    hidden_size = 64
+    lstm_layers = 2
+    epochs = 100
+    batch_size = 64
+    learning_rate = 0.001
 
-print("Projections completed and saved to 'projected_vorp_improved.csv'")
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = EnsembleNBAProjectionModel(input_size, d_model, nhead, num_layers, output_size, 
+                                   num_players, dropout, activation, embedding_dim, 
+                                   hidden_size, lstm_layers)
+    train_model(model, X_train, y_train, player_idx_train, X_val, y_val, player_idx_val, epochs, batch_size, learning_rate, device)
+    predictions = evaluate_model(model, X_test, y_test, player_idx_test, device)
 
-model.eval()
-with torch.no_grad():
-    all_outputs = model(torch.from_numpy(X).float(), torch.from_numpy(players).long()).squeeze()
-    all_targets = torch.from_numpy(y).float()
+    active_players = data[data['Season'].isin([2023, 2024])]['Player'].unique()
+    seq_length = 5
+    future_projections = []
+    for player in active_players:
+        player_data = data[data['Player'] == player].sort_values('Season')
+        if len(player_data) > seq_length:
+            player_idx = player_mapping[player]
+            projections = project_future_BPM(player_data, model, features, seq_length, player_idx, device)
+            future_projections.extend(projections)
 
-mse = mean_squared_error(all_targets, all_outputs)
-mae = mean_absolute_error(all_targets, all_outputs)
-r2 = r2_score(all_targets, all_outputs)
+    future_df = pd.DataFrame(future_projections)
+    future_df.to_csv('projected_bpm_improved.csv', index=False)
 
-print(f"Mean Squared Error: {mse:.4f}")
-print(f"Mean Absolute Error: {mae:.4f}")
-print(f"R-squared Score: {r2:.4f}")
+    print("Projections completed and saved to 'projected_bpm_improved.csv'")
 
-# Plot actual vs predicted values
-plt.figure(figsize=(10, 6))
-plt.scatter(all_targets.numpy(), all_outputs.numpy(), alpha=0.5)
-plt.plot([all_targets.min(), all_targets.max()], [all_targets.min(), all_targets.max()], 'r--', lw=2)
-plt.xlabel("Actual VORP Difference")
-plt.ylabel("Predicted VORP Difference")
-plt.title("Actual vs Predicted VORP Difference")
-plt.tight_layout()
-plt.show()
+    model.eval()
+    with torch.no_grad():
+        all_outputs = model(X_test.to(device), player_idx_test.to(device)).squeeze()
+        all_targets = y_test.to(device)
+
+    plt.figure(figsize=(10, 6))
+    plt.scatter(all_targets.cpu().numpy(), all_outputs.cpu().numpy(), alpha=0.5)
+    plt.plot([all_targets.min().cpu().numpy(), all_targets.max().cpu().numpy()], 
+             [all_targets.min().cpu().numpy(), all_targets.max().cpu().numpy()], 'r--', lw=2)
+    plt.xlabel("Actual BPM Difference")
+    plt.ylabel("Predicted BPM Difference")
+    plt.title("Actual vs Predicted BPM Difference")
+    plt.tight_layout()
+    plt.show()
+
+if __name__ == "__main__":
+    main()

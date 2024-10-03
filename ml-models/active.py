@@ -9,29 +9,30 @@ import torch.nn.functional as F
 from scipy.stats import zscore
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from sklearn.model_selection import KFold
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.ensemble import IsolationForest
+from sklearn.decomposition import PCA
 
 data = pd.read_csv('filtered_dataset.csv')
 active_players = data[data['Season'].isin([2023, 2024])]['Player'].unique()
-data['VORP_diff'] = data.groupby('Player')['VORP'].diff().fillna(0)
+data['BPM_diff'] = data.groupby('Player')['BPM'].diff().fillna(0)
 features = ['Age', 'FG', 'FGA', 'FG%', '3P', '3PA', '3P%', 
             '2P', '2PA', '2P%', 'FT', 'FTA', 'FT%', 'ORB', 'DRB', 'TRB', 
             'AST', 'STL', 'BLK', 'TOV', 'PF', 'PTS', 'ORtg', 'DRtg', 
             'PER', 'TS%', '3PAr', 'FTr', 'ORB%', 'DRB%', 'TRB%', 
             'AST%', 'STL%', 'BLK%', 'TOV%', 'USG%', 'OWS', 'DWS', 
-            'WS', 'WS/48', 'OBPM', 'DBPM', 'BPM']
-def age_curve(age, peak_age=27, decline_rate=0.5):
-    if age < peak_age:
-        return 1 + (age - 20) * 0.05
-    else:
-        return max(0, 1 - decline_rate * (age - peak_age))
+            'WS', 'WS/48', 'OBPM', 'DBPM', 'VORP']
+# def age_curve(age, peak_age=27, decline_rate=0.5):
+#     if age < peak_age:
+#         return 1 + (age - 20) * 0.05
+#     else:
+#         return max(0, 1 - decline_rate * (age - peak_age))
 def feature_engineering(data):
     data['Age_squared'] = data['Age'] ** 2
     data['Age_cubed'] = data['Age'] ** 3
-    data['Age_Curve'] = data['Age'].apply(age_curve)
+    # data['Age_Curve'] = data['Age'].apply(age_curve)
     data = data.sort_values(['Player', 'Season'])
-    rolling_features = ['AGE', 'WS', 'OWS', 'DWS', 'WS/48', 'PER', 'OBPM', 'DBPM']
+    rolling_features = ['AGE', 'WS', 'OWS', 'DWS', 'WS/48', 'PER', 'OBPM', 'DBPM', 'VORP']
     for feature in rolling_features:
         data[f'{feature}_rolling_avg'] = data.groupby('Player')[feature].transform(lambda x: x.rolling(window=3, min_periods=1).mean())
     return data
@@ -71,7 +72,7 @@ def create_sequences_for_player(player_data, seq_length=2):
     sequences = []
     for i in range(len(player_data) - seq_length):
         seq = player_data.iloc[i:i + seq_length][features].values
-        label = player_data.iloc[i + seq_length]['VORP_diff']
+        label = player_data.iloc[i + seq_length]['BPM_diff']
         sequences.append((seq, label))
     return sequences
 
@@ -90,9 +91,9 @@ def remove_outliers(data, features, contamination=0.01):
     outlier_labels = iso_forest.fit_predict(data[features])
     return data[outlier_labels == 1]
 
-data = remove_outliers(data, features + ['VORP_diff'])
-# scaler = StandardScaler()
-# data[features] = scaler.fit_transform(data[features])
+data = remove_outliers(data, features + ['BPM_diff'])
+scaler = MinMaxScaler()
+data[features] = scaler.fit_transform(data[features])
 # Save sequences to CSV
 sequences_df = pd.DataFrame([
     {
@@ -110,8 +111,16 @@ X = np.array(X)
 y = np.array(y)
 players = np.array(players)
 
-X_train, X_test, y_train, y_test, players_train, players_test = train_test_split(X, y, players, test_size=0.2, random_state=42)
-
+X_train, X_test, y_train, y_test, players_train, players_test = train_test_split(X, y, players, test_size=0.01, random_state=42)
+pca = PCA(n_components=0.95)
+X_train = pca.fit_transform(X_train.reshape(-1, X_train.shape[-1]))
+X_test = pca.transform(X_test.reshape(-1, X_test.shape[-1]))
+X_train = X_train.reshape(-1, seq_length, X_train.shape[1])
+X_test = X_test.reshape(-1, seq_length, X_test.shape[1])
+num_train_samples = X_train.shape[0]
+num_features = X_train.shape[2]
+X_train = X_train.reshape(num_train_samples, seq_length, num_features)
+X_test = X_test.reshape(X_test.shape[0], seq_length, num_features)
 input_size = X_train.shape[2]
 hidden_size = 128
 num_layers = 3
@@ -169,32 +178,30 @@ torch.save(model.state_dict(), 'model_weights.pth')
 print("Model weights saved to 'model_weights.pth'")
 
 
-def project_future_vorp_diff(player_data, model, features, seq_length, player_idx):
+def project_future_bpm_diff(player_data, model, features, seq_length, player_idx):
     projections = []
     last_seasons = player_data.iloc[-seq_length:][features].values
     last_season = player_data['Season'].max()
     player_name = player_data['Player'].iloc[0]
-
-    # Initialize a trend accumulator for VORP_diff
     trend_sum = 0
     num_trends = 0
 
     for i in range(1, 6):
         input_sequence = last_seasons.reshape(1, seq_length, -1)
         input_sequence = torch.from_numpy(input_sequence).float()
-        vorp_diff_prediction = model(input_sequence, torch.tensor([player_idx])).item()
+        bpm_diff_prediction = model(input_sequence, torch.tensor([player_idx])).item()
         if projections:
-            trend = vorp_diff_prediction - projections[-1]['Projected_VORP_diff']
+            trend = bpm_diff_prediction - projections[-1]['Projected_BPM_diff']
             trend_sum += trend
             num_trends += 1
             average_trend = trend_sum / num_trends
-            vorp_diff_prediction += average_trend
+            bpm_diff_prediction += average_trend
         
         new_season = last_season + i
         projections.append({
             'Player': player_name,
             'Season': new_season,
-            'Projected_VORP_diff': vorp_diff_prediction
+            'Projected_BPM_diff': bpm_diff_prediction
         })
         
         new_row = last_seasons[-1].copy()
@@ -208,13 +215,13 @@ for player in active_players:
     player_data = data[data['Player'] == player].sort_values('Season')
     if len(player_data) > seq_length:
         player_idx = player_map[player]
-        projections = project_future_vorp_diff(player_data, model, features, seq_length, player_idx)
+        projections = project_future_bpm_diff(player_data, model, features, seq_length, player_idx)
         future_projections.extend(projections)
 
 future_df = pd.DataFrame(future_projections)
-future_df.to_csv('projected_vorp_improved.csv', index=False)
+future_df.to_csv('projected_bpm_improved.csv', index=False)
 
-print("Projections completed and saved to 'projected_vorp_improved.csv'")
+print("Projections completed and saved to 'projected_bpm_improved.csv'")
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 model.eval()
@@ -234,8 +241,8 @@ print(f"R-squared Score: {r2:.4f}")
 plt.figure(figsize=(10, 6))
 plt.scatter(all_targets.numpy(), all_outputs.numpy(), alpha=0.5)
 plt.plot([all_targets.min(), all_targets.max()], [all_targets.min(), all_targets.max()], 'r--', lw=2)
-plt.xlabel("Actual VORP Difference")
-plt.ylabel("Predicted VORP Difference")
-plt.title("Actual vs Predicted VORP Difference")
+plt.xlabel("Actual BPM Difference")
+plt.ylabel("Predicted BPM Difference")
+plt.title("Actual vs Predicted BPM Difference")
 plt.tight_layout()
 plt.show()
