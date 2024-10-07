@@ -9,3 +9,8 @@ NBA Plans:
 - Data Scraping
 - What ML Models?
 - etc
+TO BE IMPLEMENTED
+- Game by game data for better predictions
+- Game prediction odds? EPN?
+- improve model architecture?
+- IDK MAN THIS STINKS
