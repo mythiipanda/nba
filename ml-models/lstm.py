@@ -113,6 +113,7 @@ def preprocess(data):
                 'AST%', 'STL%', 'BLK%', 'TOV%', 'USG%', 'OWS', 'DWS', 
                 'WS', 'WS/48', 'OBPM', 'DBPM', 'VORP']
     scaler = MinMaxScaler()
+    data['BPM_diff'] = data.groupby('Player')['BPM'].diff().fillna(0)
     data[features] = scaler.fit_transform(data[features])
     pca = PCA(n_components=0.95)
     pca.fit(data[features])
@@ -134,7 +135,7 @@ def create_sequences(data, features, sequence_length=3):
         player_data = data[data['Player'] == player].sort_values('Season')
         for i in range(len(player_data) - sequence_length):
             X.append(player_data[features].iloc[i:i+sequence_length].values)
-            y.append(player_data['BPM'].iloc[i+sequence_length])
+            y.append(player_data['BPM_diff'].iloc[i+sequence_length])
             player_idx.append(player_data['player_idx'].iloc[i+sequence_length])
             age.append(player_data['Age'].iloc[i+sequence_length])
     return np.array(X), np.array(y), np.array(player_idx), np.array(age)
@@ -216,7 +217,7 @@ def project_future_BPM(player_data, model, features, seq_length, player_idx, age
         input_sequence = torch.from_numpy(input_sequence).float().to(device)
         BPM_prediction = model(input_sequence, torch.tensor([player_idx]).to(device), torch.tensor([age]).to(device)).item()
         if projections:
-            trend = BPM_prediction - projections[-1]['Projected_BPM']
+            trend = BPM_prediction - projections[-1]['Projected_BPM_diff']
             trend_sum += trend
             num_trends += 1
             average_trend = trend_sum / num_trends
@@ -226,7 +227,7 @@ def project_future_BPM(player_data, model, features, seq_length, player_idx, age
         projections.append({
             'Player': player_name,
             'Season': new_season,
-            'Projected_BPM': BPM_prediction,
+            'Projected_BPM_diff': BPM_prediction,
             'Age': age + i  # Increment age for each future season
         })
         
@@ -248,7 +249,7 @@ def main():
     print(f"Length of age: {len(age)}")
 
     X_train, X_temp, y_train, y_temp, player_idx_train, player_idx_temp, age_train, age_temp = train_test_split(
-        X, y, player_idx, age, test_size=0.4)
+        X, y, player_idx, age, test_size=0.2)
     X_val, X_test, y_val, y_test, player_idx_val, player_idx_test, age_val, age_test = train_test_split(
         X_temp, y_temp, player_idx_temp, age_temp, test_size=0.2)
     X_train = torch.FloatTensor(X_train)
