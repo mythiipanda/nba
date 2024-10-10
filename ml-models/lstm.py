@@ -5,69 +5,18 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 import torch.nn.functional as F
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 import math
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
-
-class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, max_len=5000):
-        super().__init__()
-        position = torch.arange(max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
-        pe = torch.zeros(max_len, 1, d_model)
-        pe[:, 0, 0::2] = torch.sin(position * div_term)
-        pe[:, 0, 1::2] = torch.cos(position * div_term)
-        self.register_buffer('pe', pe)
-
-    def forward(self, x):
-        return x + self.pe[:x.size(0)]
-
-class AdvancedNBAProjectionModel(nn.Module):
-    def __init__(self, input_size, d_model, nhead, num_layers, output_size, num_players, 
-                 max_age, dropout=0.1, activation="gelu", embedding_dim=64, age_embedding_dim=16):
-        super().__init__()
+class NBAProjectionModel(nn.Module):
+    def __init__(self, input_size, num_players, max_age, hidden_size=64, lstm_layers=2, dropout=0.1, embedding_dim=32, age_embedding_dim=16):
+        super(NBAProjectionModel, self).__init__()
         self.player_embedding = nn.Embedding(num_players, embedding_dim)
         self.age_embedding = nn.Embedding(max_age, age_embedding_dim)
-        self.input_projection = nn.Linear(input_size + embedding_dim + age_embedding_dim, d_model)
-        self.pos_encoder = PositionalEncoding(d_model)
-        encoder_layers = TransformerEncoderLayer(d_model, nhead, d_model * 4, dropout, activation)
-        self.transformer_encoder = TransformerEncoder(encoder_layers, num_layers)
-        self.output_projection = nn.Linear(d_model, output_size)
-        self.d_model = d_model
-
-    def forward(self, src, player_idx, age):
-        player_emb = self.player_embedding(player_idx).unsqueeze(1).repeat(1, src.size(1), 1)
-        age_emb = self.age_embedding(age).unsqueeze(1).repeat(1, src.size(1), 1)
-        combined_emb = torch.cat([player_emb, age_emb], dim=2)
-        src = torch.cat([src, combined_emb], dim=2)
-        src = self.input_projection(src) * math.sqrt(self.d_model)
-        src = self.pos_encoder(src)
-        output = self.transformer_encoder(src)
-        output = self.output_projection(output[:, -1, :])
-        return output
-
-class TemporalFusionTransformer(nn.Module):
-    def __init__(self, input_size, num_players, max_age, hidden_size=64, lstm_layers=2, 
-                 num_heads=4, dropout=0.1, embedding_dim=32, age_embedding_dim=16):
-        super().__init__()
-        self.player_embedding = nn.Embedding(num_players, embedding_dim)
-        self.age_embedding = nn.Embedding(max_age, age_embedding_dim)
-        self.lstm = nn.LSTM(input_size + embedding_dim + age_embedding_dim, hidden_size, lstm_layers, batch_first=True)
-        self.variable_selection = nn.Sequential(
-            nn.Linear(hidden_size, input_size + embedding_dim + age_embedding_dim),
-            nn.Softmax(dim=-1)
-        )
-        self.static_enrichment = nn.Linear(hidden_size + embedding_dim + age_embedding_dim, hidden_size)
-        self.temporal_self_attention = nn.MultiheadAttention(hidden_size, num_heads, dropout=dropout)
-        self.gated_residual_network = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size),
-            nn.ReLU(),
-            nn.Linear(hidden_size, hidden_size),
-            nn.Sigmoid()
-        )
-        self.final_layer = nn.Linear(hidden_size, 1)
-
+        self.lstm = nn.LSTM(input_size + embedding_dim + age_embedding_dim, hidden_size, lstm_layers, batch_first=True, dropout=dropout)
+        self.output_layer = nn.Linear(hidden_size, 1)
+    
     def forward(self, x, player_idx, age):
         batch_size, seq_len, _ = x.shape
         player_emb = self.player_embedding(player_idx).unsqueeze(1).repeat(1, seq_len, 1)
@@ -76,35 +25,8 @@ class TemporalFusionTransformer(nn.Module):
         x_with_emb = torch.cat([x, combined_emb], dim=2)
         
         lstm_out, _ = self.lstm(x_with_emb)
-        var_weights = self.variable_selection(lstm_out)
-        x_selected = x_with_emb * var_weights
-        static_context = self.static_enrichment(torch.cat([lstm_out[:, -1, :], combined_emb[:, -1, :]], dim=-1))
-        enriched = lstm_out + static_context.unsqueeze(1)
-        attn_out, _ = self.temporal_self_attention(enriched.transpose(0, 1), enriched.transpose(0, 1), enriched.transpose(0, 1))
-        attn_out = attn_out.transpose(0, 1)
-        gated_out = self.gated_residual_network(attn_out)
-        output = attn_out + gated_out
-        return self.final_layer(output[:, -1, :])
-class EnsembleNBAProjectionModel(nn.Module):
-    def __init__(self, input_size, d_model, nhead, num_layers, output_size, num_players, 
-                 max_age, dropout=0.1, activation="gelu", embedding_dim=64, age_embedding_dim=16, hidden_size=64, lstm_layers=2):
-        super().__init__()
-        self.transformer_model = AdvancedNBAProjectionModel(input_size, d_model, nhead, num_layers, 
-                                                            output_size, num_players, max_age, dropout, 
-                                                            activation, embedding_dim, age_embedding_dim)
-        self.tft_model = TemporalFusionTransformer(input_size, num_players, max_age, hidden_size, 
-                                                   lstm_layers, nhead, dropout, embedding_dim, age_embedding_dim)
-        self.ensemble_weights = nn.Parameter(torch.ones(2))
-
-    def forward(self, x, player_idx, age):
-        transformer_out = self.transformer_model(x, player_idx, age)
-        tft_out = self.tft_model(x, player_idx, age)
-        
-        weights = F.softmax(self.ensemble_weights, dim=0)
-        ensemble_out = weights[0] * transformer_out + weights[1] * tft_out
-        return ensemble_out
-
-
+        output = self.output_layer(lstm_out[:, -1, :])  # Take the output of the last time step
+        return output
 def preprocess(data):
     features = ['FG', 'FGA', 'FG%', '3P', '3PA', '3P%', 
                 '2P', '2PA', '2P%', 'FT', 'FTA', 'FT%', 'ORB', 'DRB', 'TRB', 
@@ -112,7 +34,7 @@ def preprocess(data):
                 'PER', 'TS%', '3PAr', 'FTr', 'ORB%', 'DRB%', 'TRB%', 
                 'AST%', 'STL%', 'BLK%', 'TOV%', 'USG%', 'OWS', 'DWS', 
                 'WS', 'WS/48', 'OBPM', 'DBPM', 'VORP']
-    scaler = MinMaxScaler()
+    scaler = StandardScaler()
     data['BPM_diff'] = data.groupby('Player')['BPM'].diff().fillna(0)
     data[features] = scaler.fit_transform(data[features])
     pca = PCA(n_components=0.95)
@@ -129,7 +51,7 @@ def preprocess(data):
             'WS', 'WS/48', 'OBPM', 'DBPM', 'VORP']
     return data, features, player_mapping, scaler, pca
 
-def create_sequences(data, features, sequence_length=3):
+def create_sequences(data, features, sequence_length=5):
     X, y, player_idx, age = [], [], [], []
     for player in data['Player'].unique():
         player_data = data[data['Player'] == player].sort_values('Season')
@@ -142,7 +64,7 @@ def create_sequences(data, features, sequence_length=3):
 
 def train_model(model, X_train, y_train, player_idx_train, age_train, X_val, y_val, player_idx_val, age_val, epochs, batch_size, lr, device):
     criterion = nn.MSELoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-5)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-6)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, epochs=epochs, steps_per_epoch=len(X_train)//batch_size)
 
     model.to(device)
@@ -240,18 +162,12 @@ def project_future_BPM(player_data, model, features, seq_length, player_idx, age
 def main():
     data = pd.read_csv('filtered_dataset.csv')
     data, features, player_mapping, scaler, pca = preprocess(data)
+
     X, y, player_idx, age = create_sequences(data, features)
 
-    # Debug prints to check lengths
-    print(f"Length of X: {len(X)}")
-    print(f"Length of y: {len(y)}")
-    print(f"Length of player_idx: {len(player_idx)}")
-    print(f"Length of age: {len(age)}")
+    X_train, X_temp, y_train, y_temp, player_idx_train, player_idx_temp, age_train, age_temp = train_test_split(X, y, player_idx, age, test_size=0.4)
+    X_val, X_test, y_val, y_test, player_idx_val, player_idx_test, age_val, age_test = train_test_split(X_temp, y_temp, player_idx_temp, age_temp, test_size=0.2)
 
-    X_train, X_temp, y_train, y_temp, player_idx_train, player_idx_temp, age_train, age_temp = train_test_split(
-        X, y, player_idx, age, test_size=0.2)
-    X_val, X_test, y_val, y_test, player_idx_val, player_idx_test, age_val, age_test = train_test_split(
-        X_temp, y_temp, player_idx_temp, age_temp, test_size=0.2)
     X_train = torch.FloatTensor(X_train)
     X_val = torch.FloatTensor(X_val)
     X_test = torch.FloatTensor(X_test)
@@ -266,27 +182,19 @@ def main():
     age_test = torch.LongTensor(age_test)
 
     input_size = len(features)
-    d_model = 128
-    nhead = 8
-    num_layers = 4
-    output_size = 1
     num_players = len(player_mapping)
-    max_age = int(data['Age'].max() + 1)  # Ensure max_age is an integer
-    dropout = 0.1
-    activation = "gelu"
-    embedding_dim = 64
-    age_embedding_dim = 16
+    max_age = int(data['Age'].max() + 1)
     hidden_size = 64
     lstm_layers = 2
-    epochs = 100
-    batch_size = 64
+    epochs = 50
+    batch_size = 256
     learning_rate = 0.001
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = EnsembleNBAProjectionModel(input_size, d_model, nhead, num_layers, output_size, 
-                                   num_players, max_age, dropout, activation, embedding_dim, 
-                                   age_embedding_dim, hidden_size, lstm_layers)
+    model = NBAProjectionModel(input_size, num_players, max_age, hidden_size, lstm_layers).to(device)
+
     train_model(model, X_train, y_train, player_idx_train, age_train, X_val, y_val, player_idx_val, age_val, epochs, batch_size, learning_rate, device)
+
     predictions = evaluate_model(model, X_test, y_test, player_idx_test, age_test, device)
 
     active_players = data[data['Season'].isin([2023, 2024])]['Player'].unique()
