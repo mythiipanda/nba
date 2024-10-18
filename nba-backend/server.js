@@ -3,17 +3,35 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const dotenv = require('dotenv');
+const admin = require('firebase-admin');
+const serviceAccount = require('./serviceAccountKey.json');
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
 // Middleware
 app.use(cors({
   origin: process.env.REACT_APP_API_SENDER //set sender when not using vercel
 }));
 app.use(bodyParser.json());
+const authenticate = async (req, res, next) => {
+  const idToken = req.headers.authorization?.split('Bearer ')[1];
+  if (!idToken) {
+    return res.status(401).send('Unauthorized');
+  }
 
+  try {
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    req.user = decodedToken;
+    next();
+  } catch (error) {
+    return res.status(401).send('Unauthorized');
+  }
+};
 // Connect to MongoDB Atlas
 const MONGODB_URL = process.env.MONGODB_URL;
 mongoose.connect(MONGODB_URL, {

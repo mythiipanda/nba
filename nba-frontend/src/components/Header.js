@@ -1,7 +1,9 @@
+// src/components/Header.js
 import React from 'react';
 import { NavLink } from 'react-router-dom';
+import AuthButton from './AuthButton';
 
-const Header = () => {
+const Header = ({ user }) => {
   return (
     <header className="bg-white shadow-sm">
       <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -30,6 +32,9 @@ const Header = () => {
                 Player Stats
               </NavLink>
             </div>
+          </div>
+          <div className="flex items-center">
+            <AuthButton user={user} />
           </div>
         </div>
       </nav>

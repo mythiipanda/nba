@@ -129,7 +129,7 @@ def preprocess(data):
             'WS', 'WS/48', 'OBPM', 'DBPM', 'VORP']
     return data, features, player_mapping, scaler, pca
 
-def create_sequences(data, features, sequence_length=4):
+def create_sequences(data, features, sequence_length=3):
     X, y, player_idx, age = [], [], [], []
     for player in data['Player'].unique():
         player_data = data[data['Player'] == player].sort_values('Season')
