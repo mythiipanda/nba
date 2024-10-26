@@ -14,3 +14,5 @@ TO BE IMPLEMENTED
 - Game prediction odds? EPN?
 - improve model architecture?
 - IDK MAN THIS STINKS
+Notes:
+-crawl4api for scraping data with LLMs?
