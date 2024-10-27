@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 
 const VisualizationPage = () => {
@@ -6,51 +6,58 @@ const VisualizationPage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const observer = useRef();
+
+  // Fetch data with pagination and search
+  const fetchData = async (reset = false) => {
+    try {
+      setIsLoading(true);
+      const response = await axios.get(`${process.env.REACT_APP_API_URL}/api/advanced-players`, {
+        params: { page, name: searchQuery, limit: 20 },  // limit the results to 20 per page
+      });
+
+      if (reset) {
+        setPlayerData(response.data.players);
+      } else {
+        setPlayerData((prevData) => [...prevData, ...response.data.players]);
+      }
+
+      setHasMore(response.data.players.length > 0);
+      setPage((prevPage) => prevPage + 1);
+    } catch (error) {
+      setError('Error fetching player data');
+      console.error('Error fetching player data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchInitialData = async () => {
-      try {
-        setIsLoading(true);
-        const response = await axios.get(`${process.env.REACT_APP_API_URL}/api/advanced-players`);
-        setPlayerData(response.data);
-      } catch (error) {
-        setError('Error fetching player data');
-        console.error('Error fetching player data:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+    fetchData(true);
+  }, [searchQuery]);
 
-    fetchInitialData();
+  useEffect(() => {
+    fetchData();
   }, []);
 
-  useEffect(() => {
-    const handleSearch = async () => {
-      if (searchQuery.length < 2) {
-        // Reset to initial data if search query is too short
-        const response = await axios.get(`${process.env.REACT_APP_API_URL}/api/advanced-players`);
-        setPlayerData(response.data);
-        return;
-      }
+  const handleSearchChange = (e) => {
+    setSearchQuery(e.target.value);
+    setPage(1);  // Reset page to 1 when search query changes
+    setHasMore(true);  // Reset hasMore to true when search query changes
+  };
 
-      try {
-        setIsLoading(true);
-        console.log(`Searching for players with name: ${searchQuery}`);
-        const response = await axios.get(`${process.env.REACT_APP_API_URL}/api/advanced-players/search?name=${searchQuery}`);
-        console.log('Search response:', response.data);
-        setPlayerData(response.data);
-      } catch (error) {
-        setError('Error searching players');
-        console.error('Error searching players:', error);
-      } finally {
-        setIsLoading(false);
+  const lastPlayerElementRef = useCallback((node) => {
+    if (isLoading) return;
+    if (observer.current) observer.current.disconnect();
+    observer.current = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting && hasMore) {
+        fetchData();
       }
-    };
-
-    // Debounce the search to avoid too many API calls
-    const timeoutId = setTimeout(handleSearch, 300);
-    return () => clearTimeout(timeoutId);
-  }, [searchQuery]);
+    });
+    if (node) observer.current.observe(node);
+  }, [isLoading, hasMore]);
 
   const PlayerStatsRow = ({ player }) => (
     <div className="border rounded-lg p-4 mb-4 hover:bg-gray-50 transition-colors duration-200">
@@ -87,7 +94,7 @@ const VisualizationPage = () => {
               type="text"
               placeholder="Search players (min. 2 characters)..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={handleSearchChange}
               className="w-full max-w-md px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -98,27 +105,25 @@ const VisualizationPage = () => {
               {error}
             </div>
           )}
-          {isLoading ? (
+          {isLoading && (
             <div className="text-center py-8 text-gray-600">
               <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
               Loading...
             </div>
-          ) : (
-            <div>
-              {playerData.length === 0 ? (
-                <div className="text-center py-8 text-gray-600">
-                  No players found
-                </div>
-              ) : (
-                playerData.map((player, index) => (
-                  <PlayerStatsRow 
-                    key={`${player.PLAYER_ID}-${player.SEASON_ID}-${index}`} 
-                    player={player} 
-                  />
-                ))
-              )}
-            </div>
           )}
+          <div>
+            {playerData.length === 0 && !isLoading ? (
+              <div className="text-center py-8 text-gray-600">
+                No players found
+              </div>
+            ) : (
+              playerData.map((player, index) => (
+                <div ref={index === playerData.length - 1 ? lastPlayerElementRef : null} key={`${player.PLAYER_ID}-${player.SEASON_ID}-${index}`}>
+                  <PlayerStatsRow player={player} />
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
     </div>

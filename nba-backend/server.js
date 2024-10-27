@@ -145,17 +145,33 @@ const advancedPlayerSchema = new mongoose.Schema({
   player_name: { type: String, required: true }
 });
 
-const AdvancedPlayer = mongoose.model('AdvancedPlayer', advancedPlayerSchema, 'nba_stats/players_adv_all');
+const AdvancedPlayer = mongoose.model('AdvancedPlayer', advancedPlayerSchema, 'players_adv_all');
 
 // New endpoint to get all advanced player stats
 app.get('/api/advanced-players', async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 20;  // Set default limit to 20
+  const skip = (page - 1) * limit;
+
   try {
-    const players = await AdvancedPlayer.find();
-    res.json(players);
+    const players = await AdvancedPlayer.find()
+      .skip(skip)
+      .limit(limit);
+    const totalPlayers = await AdvancedPlayer.countDocuments();
+
+    res.json({
+      players,
+      pagination: {
+        page,
+        totalPages: Math.ceil(totalPlayers / limit),
+        hasMore: skip + players.length < totalPlayers,
+      },
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
+
 
 // New endpoint to search advanced players by name
 app.get('/api/advanced-players/search', async (req, res) => {
