@@ -1,4 +1,3 @@
-// src/App.js
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
@@ -7,6 +6,7 @@ import PlayerPage from './pages/PlayerPage';
 import AuthPage from './pages/AuthPage';
 import Header from './components/Header';
 import PrivateRoute from './components/PrivateRoute';
+import VisualizationPage from './pages/VisualizationPage';
 
 const App = () => {
   const [user, setUser] = useState(null);
@@ -29,7 +29,7 @@ const App = () => {
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<AuthPage />} />
             <Route path="/player-stats" element={<PlayerPage />} />
-            <Route path="/player-stats/:id" element={<PlayerPage />} />
+            <Route path="/visualization" element={<VisualizationPage />} />
           </Routes>
         </main>
       </div>

@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import PlayerRow from '../components/PlayerRow';
 import { FaSort, FaSortUp, FaSortDown } from 'react-icons/fa';
 import {
   ATL, BOS, BKN, CHA, CHI, CLE, DAL, DEN, DET, GSW, HOU, IND, LAC, LAL, MEM, MIA, MIL, MIN, NOP, NYK, OKC, ORL, PHI, PHX, POR, SAC, SAS, TOR, UTA, WAS
@@ -46,6 +47,7 @@ const PlayerPage = () => {
     setSortConfig({ key, direction });
   };
 
+
   const getSortIcon = (key) => {
     if (sortConfig.key === key) {
       return sortConfig.direction === 'ascending' ? <FaSortUp /> : <FaSortDown />;
@@ -55,76 +57,29 @@ const PlayerPage = () => {
 
   const getTeamColor = (team) => {
     const teamColors = {
-      'ATL': '#F5B7B1', // Atlanta Hawks
-      'BOS': '#D0E7E2', // Boston Celtics
-      'BKN': '#BDC3C7', // Brooklyn Nets
-      'CHA': '#B2E1D7', // Charlotte Hornets
-      'CHI': '#F9B2B2', // Chicago Bulls
-      'CLE': '#E5B6C4', // Cleveland Cavaliers
-      'DAL': '#A8D8E7', // Dallas Mavericks
-      'DEN': '#B2C9E4', // Denver Nuggets
-      'DET': '#F9B2B2', // Detroit Pistons
-      'GSW': '#A0C3E8', // Golden State Warriors
-      'HOU': '#F9B2B2', // Houston Rockets
-      'IND': '#B2C9E4', // Indiana Pacers
-      'LAC': '#F9B2B2', // Los Angeles Clippers
-      'LAL': '#D7B3E0', // Los Angeles Lakers
-      'MEM': '#A4C8E1', // Memphis Grizzlies
-      'MIA': '#F8BBD0', // Miami Heat
-      'MIL': '#C4E1D5', // Milwaukee Bucks
-      'MIN': '#A4D3E2', // Minnesota Timberwolves
-      'NOP': '#F9B2B2', // New Orleans Pelicans
-      'NYK': '#FFE0B2', // New York Knicks
-      'OKC': '#A8D8E7', // Oklahoma City Thunder
-      'ORL': '#A4D8E1', // Orlando Magic
-      'PHI': '#A0C3E8', // Philadelphia 76ers
-      'PHX': '#F0C3B1', // Phoenix Suns
-      'POR': '#F5B7B1', // Portland Trail Blazers
-      'SAC': '#E6B3E0', // Sacramento Kings
-      'SAS': '#BDC3C7', // San Antonio Spurs
-      'TOR': '#F2B2B2', // Toronto Raptors
-      'UTA': '#B2C9E4', // Utah Jazz
-      'WAS': '#F2B2B2', // Washington Wizards
+      'ATL': '#F5B7B1', 'BOS': '#D0E7E2', 'BKN': '#BDC3C7', 'CHA': '#B2E1D7', 'CHI': '#F9B2B2',
+      'CLE': '#E5B6C4', 'DAL': '#A8D8E7', 'DEN': '#B2C9E4', 'DET': '#F9B2B2', 'GSW': '#A0C3E8',
+      'HOU': '#F9B2B2', 'IND': '#B2C9E4', 'LAC': '#F9B2B2', 'LAL': '#D7B3E0', 'MEM': '#A4C8E1',
+      'MIA': '#F8BBD0', 'MIL': '#C4E1D5', 'MIN': '#A4D3E2', 'NOP': '#F9B2B2', 'NYK': '#FFE0B2',
+      'OKC': '#A8D8E7', 'ORL': '#A4D8E1', 'PHI': '#A0C3E8', 'PHX': '#F0C3B1', 'POR': '#F5B7B1',
+      'SAC': '#E6B3E0', 'SAS': '#BDC3C7', 'TOR': '#F2B2B2', 'UTA': '#B2C9E4', 'WAS': '#F2B2B2',
     };
-    return teamColors[team] || '#FFFFFF'; // Default to white if team color is not found
+    return teamColors[team] || '#FFFFFF';
   };
 
   const getTeamLogo = (team) => {
     const teamLogos = {
-      'ATL': <ATL size={38} />, // Atlanta Hawks
-      'BOS': <BOS size={38} />, // Boston Celtics
-      'BKN': <BKN size={38} />, // Brooklyn Nets
-      'CHA': <CHA size={38} />, // Charlotte Hornets
-      'CHI': <CHI size={38} />, // Chicago Bulls
-      'CLE': <CLE size={38} />, // Cleveland Cavaliers
-      'DAL': <DAL size={38} />, // Dallas Mavericks
-      'DEN': <DEN size={38} />, // Denver Nuggets
-      'DET': <DET size={38} />, // Detroit Pistons
-      'GSW': <GSW size={38} />, // Golden State Warriors
-      'HOU': <HOU size={38} />, // Houston Rockets
-      'IND': <IND size={38} />, // Indiana Pacers
-      'LAC': <LAC size={38} />, // Los Angeles Clippers
-      'LAL': <LAL size={38} />, // Los Angeles Lakers
-      'MEM': <MEM size={38} />, // Memphis Grizzlies
-      'MIA': <MIA size={38} />, // Miami Heat
-      'MIL': <MIL size={38} />, // Milwaukee Bucks
-      'MIN': <MIN size={38} />, // Minnesota Timberwolves
-      'NOP': <NOP size={38} />, // New Orleans Pelicans
-      'NYK': <NYK size={38} />, // New York Knicks
-      'OKC': <OKC size={38} />, // Oklahoma City Thunder
-      'ORL': <ORL size={38} />, // Orlando Magic
-      'PHI': <PHI size={38} />, // Philadelphia 76ers
-      'PHX': <PHX size={38} />, // Phoenix Suns
-      'POR': <POR size={38} />, // Portland Trail Blazers
-      'SAC': <SAC size={38} />, // Sacramento Kings
-      'SAS': <SAS size={38} />, // San Antonio Spurs
-      'TOR': <TOR size={38} />, // Toronto Raptors
-      'UTA': <UTA size={38} />, // Utah Jazz
-      'WAS': <WAS size={38} />, // Washington Wizards
+      'ATL': <ATL size={38} />, 'BOS': <BOS size={38} />, 'BKN': <BKN size={38} />, 'CHA': <CHA size={38} />,
+      'CHI': <CHI size={38} />, 'CLE': <CLE size={38} />, 'DAL': <DAL size={38} />, 'DEN': <DEN size={38} />,
+      'DET': <DET size={38} />, 'GSW': <GSW size={38} />, 'HOU': <HOU size={38} />, 'IND': <IND size={38} />,
+      'LAC': <LAC size={38} />, 'LAL': <LAL size={38} />, 'MEM': <MEM size={38} />, 'MIA': <MIA size={38} />,
+      'MIL': <MIL size={38} />, 'MIN': <MIN size={38} />, 'NOP': <NOP size={38} />, 'NYK': <NYK size={38} />,
+      'OKC': <OKC size={38} />, 'ORL': <ORL size={38} />, 'PHI': <PHI size={38} />, 'PHX': <PHX size={38} />,
+      'POR': <POR size={38} />, 'SAC': <SAC size={38} />, 'SAS': <SAS size={38} />, 'TOR': <TOR size={38} />,
+      'UTA': <UTA size={38} />, 'WAS': <WAS size={38} />,
     };
-    return teamLogos[team] || null; // Default to null if team logo is not found
+    return teamLogos[team] || null;
   };
-
   return (
     <div className="container mx-auto p-4">
       <h1 className="text-3xl font-bold text-gray-900 mb-8 text-center">Player Stats (Per Game)</h1>
@@ -206,32 +161,7 @@ const PlayerPage = () => {
           </thead>
           <tbody>
             {filteredPlayers.map((player, index) => (
-              <tr key={index} className="hover:bg-gray-100" style={{ backgroundColor: getTeamColor(player.TEAM_ABBREVIATION) }}>
-                <td className="py-2 px-4 border-b flex items-center">
-                  {getTeamLogo(player.TEAM_ABBREVIATION)}
-                  <span className="ml-2">{player.player_name}</span>
-                </td>
-                <td className="py-2 px-4 border-b text-center">{player.TEAM}</td>
-                <td className="py-2 px-4 border-b text-center">{player.GP}</td>
-                <td className="py-2 px-4 border-b text-center">{(player.MIN / player.GP).toFixed(1)}</td>
-                <td className="py-2 px-4 border-b text-center">{(player.FGM / player.GP).toFixed(1)}</td>
-                <td className="py-2 px-4 border-b text-center">{(player.FGA / player.GP).toFixed(1)}</td>
-                <td className="py-2 px-4 border-b text-center">{(player.FG_PCT * 100).toFixed(1)}%</td>
-                <td className="py-2 px-4 border-b text-center">{(player.FG3M / player.GP).toFixed(1)}</td>
-                <td className="py-2 px-4 border-b text-center">{(player.FG3A / player.GP).toFixed(1)}</td>
-                <td className="py-2 px-4 border-b text-center">{(player.FG3_PCT * 100).toFixed(1)}%</td>
-                <td className="py-2 px-4 border-b text-center">{(player.FTM / player.GP).toFixed(1)}</td>
-                <td className="py-2 px-4 border-b text-center">{(player.FTA / player.GP).toFixed(1)}</td>
-                <td className="py-2 px-4 border-b text-center">{(player.FT_PCT * 100).toFixed(1)}%</td>
-                <td className="py-2 px-4 border-b text-center">{(player.OREB / player.GP).toFixed(1)}</td>
-                <td className="py-2 px-4 border-b text-center">{(player.DREB / player.GP).toFixed(1)}</td>
-                <td className="py-2 px-4 border-b text-center">{(player.REB / player.GP).toFixed(1)}</td>
-                <td className="py-2 px-4 border-b text-center">{(player.AST / player.GP).toFixed(1)}</td>
-                <td className="py-2 px-4 border-b text-center">{(player.STL / player.GP).toFixed(1)}</td>
-                <td className="py-2 px-4 border-b text-center">{(player.BLK / player.GP).toFixed(1)}</td>
-                <td className="py-2 px-4 border-b text-center">{(player.TOV / player.GP).toFixed(1)}</td>
-                <td className="py-2 px-4 border-b text-center">{(player.PTS / player.GP).toFixed(1)}</td>
-              </tr>
+              <PlayerRow key={index} player={player} getTeamColor={getTeamColor} getTeamLogo={getTeamLogo} />
             ))}
           </tbody>
         </table>
