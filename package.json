@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@mui/material": "^6.1.5",
     "axios": "^1.7.7",
     "firebase-admin": "^12.6.0",
     "react-nba-logos": "^1.0.0"

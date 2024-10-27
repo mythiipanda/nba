@@ -73,32 +73,37 @@ app.post('/api/posts', async (req, res) => {
 
 // Define Player Schema
 const playerSchema = new mongoose.Schema({
-  PLAYER_ID: Number,
-  PLAYER: String,
-  TEAM_ID: Number,
-  TEAM: String,
-  GP: Number,
-  MIN: Number,
-  FGM: Number,
-  FGA: Number,
-  FG_PCT: Number,
-  FG3M: Number,
-  FG3A: Number,
-  FG3_PCT: Number,
-  FTM: Number,
-  FTA: Number,
-  FT_PCT: Number,
-  OREB: Number,
-  DREB: Number,
-  REB: Number,
-  AST: Number,
-  STL: Number,
-  BLK: Number,
-  TOV: Number,
-  PTS: Number,
+  PLAYER_ID: { type: Number, required: true },
+  SEASON_ID: { type: String, required: true },
+  LEAGUE_ID: { type: String, required: true },
+  TEAM_ID: { type: Number, required: true },
+  TEAM_ABBREVIATION: { type: String, required: true },
+  PLAYER_AGE: { type: Number, required: true },
+  GP: { type: Number, required: true },
+  GS: { type: Number, required: true },
+  MIN: { type: Number, required: true },
+  FGM: { type: Number, required: true },
+  FGA: { type: Number, required: true },
+  FG_PCT: { type: Number, required: true },
+  FG3M: { type: Number, required: true },
+  FG3A: { type: Number, required: true },
+  FG3_PCT: { type: Number, required: true },
+  FTM: { type: Number, required: true },
+  FTA: { type: Number, required: true },
+  FT_PCT: { type: Number, required: true },
+  OREB: { type: Number, required: true },
+  DREB: { type: Number, required: true },
+  REB: { type: Number, required: true },
+  AST: { type: Number, required: true },
+  STL: { type: Number, required: true },
+  BLK: { type: Number, required: true },
+  TOV: { type: Number, required: true },
+  PF: { type: Number, required: true },
+  PTS: { type: Number, required: true },
+  player_name: { type: String, required: true }
 });
 
-const Player = mongoose.model('Player', playerSchema, 'players_adv');
+const Player = mongoose.model('player_name', playerSchema, 'active_players_2024-2025');
 
 // Endpoint to get player data
 app.get('/api/players', async (req, res) => {
@@ -116,6 +121,17 @@ app.get('/api/players/search', async (req, res) => {
   try {
     const players = await Player.find({ PLAYER: new RegExp(name, 'i') });
     res.json(players);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// Player details endpoint
+app.get('/api/player-details/:id', async (req, res) => {
+  const playerId = req.params.id;
+  try {
+    const playerDetails = await mongoose.connection.db.collection('players_adv_all').findOne({ PLAYER_ID: parseInt(playerId) });
+    res.json(playerDetails);
   } catch (error) {
     res.status(500).json({ error: 'Internal Server Error' });
   }

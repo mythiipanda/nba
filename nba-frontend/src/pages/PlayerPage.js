@@ -8,6 +8,7 @@ import {
 const PlayerPage = () => {
   const [players, setPlayers] = useState([]);
   const [sortConfig, setSortConfig] = useState({ key: 'PTS', direction: 'descending' });
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     fetchPlayers();
@@ -16,6 +17,7 @@ const PlayerPage = () => {
   const fetchPlayers = async () => {
     try {
       const response = await axios.get(`${process.env.REACT_APP_API_URL}/api/players`);
+      console.log(response.data); // Log the fetched data
       setPlayers(response.data);
     } catch (error) {
       console.error('Error fetching player data:', error);
@@ -31,6 +33,10 @@ const PlayerPage = () => {
     }
     return 0;
   });
+
+  const filteredPlayers = sortedPlayers.filter(player =>
+    player.player_name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   const requestSort = (key) => {
     let direction = 'ascending';
@@ -122,12 +128,19 @@ const PlayerPage = () => {
   return (
     <div className="container mx-auto p-4">
       <h1 className="text-3xl font-bold text-gray-900 mb-8 text-center">Player Stats (Per Game)</h1>
+      <input
+        type="text"
+        placeholder="Search by player name"
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        className="mb-4 p-2 border border-gray-300 rounded"
+      />
       <div className="overflow-x-auto">
         <table className="min-w-full bg-white mx-auto border border-gray-300">
           <thead>
             <tr className="bg-gray-100">
-              <th className="py-2 px-4 border-b cursor-pointer text-left" onClick={() => requestSort('PLAYER')}>
-                Name {getSortIcon('PLAYER')}
+              <th className="py-2 px-4 border-b cursor-pointer text-left" onClick={() => requestSort('player_name')}>
+                Name {getSortIcon('player_name')}
               </th>
               <th className="py-2 px-4 border-b cursor-pointer text-center" onClick={() => requestSort('TEAM')}>
                 Team {getSortIcon('TEAM')}
@@ -192,32 +205,32 @@ const PlayerPage = () => {
             </tr>
           </thead>
           <tbody>
-            {sortedPlayers.map((player, index) => (
-              <tr key={index} className="hover:bg-gray-100" style={{ backgroundColor: getTeamColor(player.TEAM) }}>
+            {filteredPlayers.map((player, index) => (
+              <tr key={index} className="hover:bg-gray-100" style={{ backgroundColor: getTeamColor(player.TEAM_ABBREVIATION) }}>
                 <td className="py-2 px-4 border-b flex items-center">
-                  {getTeamLogo(player.TEAM)}
-                  <span className="ml-2">{player.PLAYER}</span>
+                  {getTeamLogo(player.TEAM_ABBREVIATION)}
+                  <span className="ml-2">{player.player_name}</span>
                 </td>
                 <td className="py-2 px-4 border-b text-center">{player.TEAM}</td>
                 <td className="py-2 px-4 border-b text-center">{player.GP}</td>
-                <td className="py-2 px-4 border-b text-center">{player.MIN}</td>
-                <td className="py-2 px-4 border-b text-center">{player.FGM}</td>
-                <td className="py-2 px-4 border-b text-center">{player.FGA}</td>
+                <td className="py-2 px-4 border-b text-center">{(player.MIN / player.GP).toFixed(1)}</td>
+                <td className="py-2 px-4 border-b text-center">{(player.FGM / player.GP).toFixed(1)}</td>
+                <td className="py-2 px-4 border-b text-center">{(player.FGA / player.GP).toFixed(1)}</td>
                 <td className="py-2 px-4 border-b text-center">{(player.FG_PCT * 100).toFixed(1)}%</td>
-                <td className="py-2 px-4 border-b text-center">{player.FG3M}</td>
-                <td className="py-2 px-4 border-b text-center">{player.FG3A}</td>
+                <td className="py-2 px-4 border-b text-center">{(player.FG3M / player.GP).toFixed(1)}</td>
+                <td className="py-2 px-4 border-b text-center">{(player.FG3A / player.GP).toFixed(1)}</td>
                 <td className="py-2 px-4 border-b text-center">{(player.FG3_PCT * 100).toFixed(1)}%</td>
-                <td className="py-2 px-4 border-b text-center">{player.FTM}</td>
-                <td className="py-2 px-4 border-b text-center">{player.FTA}</td>
+                <td className="py-2 px-4 border-b text-center">{(player.FTM / player.GP).toFixed(1)}</td>
+                <td className="py-2 px-4 border-b text-center">{(player.FTA / player.GP).toFixed(1)}</td>
                 <td className="py-2 px-4 border-b text-center">{(player.FT_PCT * 100).toFixed(1)}%</td>
-                <td className="py-2 px-4 border-b text-center">{player.OREB}</td>
-                <td className="py-2 px-4 border-b text-center">{player.DREB}</td>
-                <td className="py-2 px-4 border-b text-center">{player.REB}</td>
-                <td className="py-2 px-4 border-b text-center">{player.AST}</td>
-                <td className="py-2 px-4 border-b text-center">{player.STL}</td>
-                <td className="py-2 px-4 border-b text-center">{player.BLK}</td>
-                <td className="py-2 px-4 border-b text-center">{player.TOV}</td>
-                <td className="py-2 px-4 border-b text-center">{player.PTS}</td>
+                <td className="py-2 px-4 border-b text-center">{(player.OREB / player.GP).toFixed(1)}</td>
+                <td className="py-2 px-4 border-b text-center">{(player.DREB / player.GP).toFixed(1)}</td>
+                <td className="py-2 px-4 border-b text-center">{(player.REB / player.GP).toFixed(1)}</td>
+                <td className="py-2 px-4 border-b text-center">{(player.AST / player.GP).toFixed(1)}</td>
+                <td className="py-2 px-4 border-b text-center">{(player.STL / player.GP).toFixed(1)}</td>
+                <td className="py-2 px-4 border-b text-center">{(player.BLK / player.GP).toFixed(1)}</td>
+                <td className="py-2 px-4 border-b text-center">{(player.TOV / player.GP).toFixed(1)}</td>
+                <td className="py-2 px-4 border-b text-center">{(player.PTS / player.GP).toFixed(1)}</td>
               </tr>
             ))}
           </tbody>

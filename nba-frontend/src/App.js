@@ -28,7 +28,8 @@ const App = () => {
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<AuthPage />} />
-            <Route path="/player-stats" element={<PrivateRoute element={PlayerPage} />} />
+            <Route path="/player-stats" element={<PlayerPage />} />
+            <Route path="/player-stats/:id" element={<PlayerPage />} />
           </Routes>
         </main>
       </div>
